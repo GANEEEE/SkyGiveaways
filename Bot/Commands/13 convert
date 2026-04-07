@@ -1,0 +1,252 @@
+const {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  ContainerBuilder,
+  MessageFlags
+} = require('discord.js');
+
+const dbManager = require('../Data/database');
+const { ActivityRewardsManager } = require('../LevelSystem/activitysystem');
+
+const manager = new ActivityRewardsManager(dbManager);
+
+const cv2 = { flags: MessageFlags.IsComponentsV2 };
+const errC = (t, d) => new ContainerBuilder().setAccentColor(0xFF4444).addTextDisplayComponents(tx => tx.setContent(`## ${t}\n${d}`));
+
+module.exports = {
+  data: new SlashCommandBuilder()
+      .setName('converts')
+      .setDescription('Convert Sky-Tokens to Sky-Coins at end of event')
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+      .addStringOption(opt =>
+          opt.setName('winner')
+              .setDescription('Which guild won the event?')
+              .setRequired(true)
+              .addChoices(
+                  { name: '⚔️ Sky Vanguards', value: 'sky_vanguards' },
+                  { name: '🌌 Aether Raiders', value: 'aether_raiders' }
+              ))
+      .addBooleanOption(opt =>
+          opt.setName('dry_run')
+              .setDescription('Preview conversion without actually applying?')
+              .setRequired(false)),
+
+  async execute(interaction) {
+      try {
+          await interaction.deferReply({ ephemeral: true });
+
+          const winner = interaction.options.getString('winner');
+          const isDryRun = interaction.options.getBoolean('dry_run') ?? false;
+
+          const losing = winner === 'sky_vanguards' ? 'aether_raiders' : 'sky_vanguards';
+
+          // جلب كل المستخدمين المسجلين في activity_rewards
+          const allUsers = await dbManager.all(
+              `SELECT user_id, username, guild, total_sky_tokens 
+               FROM activity_rewards 
+               WHERE total_sky_tokens > 0`
+          );
+
+          if (allUsers.length === 0) {
+              return interaction.editReply({ 
+                  components: [errC('❌ No Users', 'No users with Sky-Tokens found.')], 
+                  ...cv2 
+              });
+          }
+
+          // تقسيم المستخدمين
+          const winners = allUsers.filter(u => u.guild === winner);
+          const losers = allUsers.filter(u => u.guild === losing);
+          const unassigned = allUsers.filter(u => u.guild !== winner && u.guild !== losing);
+
+          // حساب الإحصائيات
+          let totalTokensWinners = winners.reduce((sum, u) => sum + u.total_sky_tokens, 0);
+          let totalTokensLosers = losers.reduce((sum, u) => sum + u.total_sky_tokens, 0);
+          let totalTokensUnassigned = unassigned.reduce((sum, u) => sum + u.total_sky_tokens, 0);
+
+          // تحويل Sky-Tokens → Coins (نسبة التحويل: 1 💠 = 2 🪙)
+          const CONVERSION_RATE = 2;
+
+          let totalCoinsWinners = Math.floor(totalTokensWinners * 0.5 * CONVERSION_RATE);
+          let totalCoinsLosers = Math.floor(totalTokensLosers * 0.25 * CONVERSION_RATE);
+          let totalCoinsUnassigned = 0; // المحايدين يروحوا للخزينة
+
+          let totalCoinsToPlayers = totalCoinsWinners + totalCoinsLosers;
+          let totalCoinsToTreasury = (totalTokensWinners * 0.5 * CONVERSION_RATE - totalCoinsWinners) +
+                                     (totalTokensLosers * 0.75 * CONVERSION_RATE) +
+                                     (totalTokensUnassigned * CONVERSION_RATE);
+
+          // عرض التقرير
+          const reportContainer = new ContainerBuilder()
+              .setAccentColor(winner === 'sky_vanguards' ? 0x5865F2 : 0x9B59B6)
+              .addTextDisplayComponents(t => t.setContent(
+                  `## 🏆 Event Conversion Report\n` +
+                  `${isDryRun ? '🔍 **DRY RUN MODE** (No changes applied)\n' : '✅ **LIVE MODE** (Changes will be applied)\n'}`
+              ))
+              .addSeparatorComponents(s => s.setDivider(true))
+              .addTextDisplayComponents(t => t.setContent(
+                  `### ⚔️ ${winner === 'sky_vanguards' ? 'Sky Vanguards' : 'Aether Raiders'} (WINNER)\n` +
+                  `👥 Players: **${winners.length}**\n` +
+                  `💠 Total Sky-Tokens: **${totalTokensWinners.toLocaleString()}**\n` +
+                  `🪙 Converted (50% → Coins): **${totalCoinsWinners.toLocaleString()} Coins**\n` +
+                  `🏦 To Treasury (50%): **${(totalTokensWinners * 0.5 * CONVERSION_RATE - totalCoinsWinners).toLocaleString()} Coins**`
+              ))
+              .addSeparatorComponents(s => s.setDivider(true))
+              .addTextDisplayComponents(t => t.setContent(
+                  `### 🌌 ${winner === 'sky_vanguards' ? 'Aether Raiders' : 'Sky Vanguards'} (LOSER)\n` +
+                  `👥 Players: **${losers.length}**\n` +
+                  `💠 Total Sky-Tokens: **${totalTokensLosers.toLocaleString()}**\n` +
+                  `🪙 Converted (25% → Coins): **${totalCoinsLosers.toLocaleString()} Coins**\n` +
+                  `🏦 To Treasury (75%): **${(totalTokensLosers * 0.75 * CONVERSION_RATE).toLocaleString()} Coins**`
+              ));
+
+          if (unassigned.length > 0) {
+              reportContainer.addSeparatorComponents(s => s.setDivider(true))
+                  .addTextDisplayComponents(t => t.setContent(
+                      `### ❓ Unassigned Players\n` +
+                      `👥 Players: **${unassigned.length}**\n` +
+                      `💠 Total Sky-Tokens: **${totalTokensUnassigned.toLocaleString()}**\n` +
+                      `🏦 All go to Treasury: **${(totalTokensUnassigned * CONVERSION_RATE).toLocaleString()} Coins**`
+                  ));
+          }
+
+          reportContainer.addSeparatorComponents(s => s.setDivider(true))
+              .addTextDisplayComponents(t => t.setContent(
+                  `### 📊 Summary\n` +
+                  `**🪙 Total Coins to Players:** ${totalCoinsToPlayers.toLocaleString()}\n` +
+                  `**🏦 Total Coins to Treasury:** ${totalCoinsToTreasury.toLocaleString()}\n` +
+                  `**👥 Total Players:** ${allUsers.length}`
+              ));
+
+          // لو Dry Run، اعرض التقرير بس
+          if (isDryRun) {
+              reportContainer.addSeparatorComponents(s => s.setDivider(true))
+                  .addTextDisplayComponents(t => t.setContent(
+                      `-# Run \`/convert winner:${winner}\` to apply conversion.`
+                  ));
+              return interaction.editReply({ components: [reportContainer], ...cv2 });
+          }
+
+          // ===== LIVE MODE: تطبيق التحويل =====
+
+          // 1. تحويل للفريق الفائز (50% من Sky-Tokens تتحول لـ Coins)
+          for (const user of winners) {
+              const tokensToConvert = Math.floor(user.total_sky_tokens * 0.5);
+              const coinsToAdd = tokensToConvert * 2; // 1 💠 = 2 🪙
+
+              if (coinsToAdd > 0) {
+                  // تأكد من وجود المستخدم في جدول levels
+                  const exists = await dbManager.get(
+                      'SELECT user_id FROM levels WHERE user_id = $1',
+                      [user.user_id]
+                  );
+
+                  if (!exists) {
+                      // إنشاء المستخدم إذا مش موجود
+                      await dbManager.run(
+                          'INSERT INTO levels (user_id, username, sky_coins) VALUES ($1, $2, $3)',
+                          [user.user_id, user.username, coinsToAdd]
+                      );
+                  } else {
+                      // تحديث الرصيد
+                      await dbManager.run(
+                          `UPDATE levels 
+                           SET sky_coins = sky_coins + $1,
+                               username = $2,
+                               updated_at = CURRENT_TIMESTAMP
+                           WHERE user_id = $3`,
+                          [coinsToAdd, user.username, user.user_id]
+                      );
+                  }
+              }
+          }
+
+          // 2. تحويل للفريق الخاسر (25% من Sky-Tokens تتحول لـ Coins)
+          for (const user of losers) {
+              const tokensToConvert = Math.floor(user.total_sky_tokens * 0.25);
+              const coinsToAdd = tokensToConvert * 2; // 1 💠 = 2 🪙
+
+              if (coinsToAdd > 0) {
+                  const exists = await dbManager.get(
+                      'SELECT user_id FROM levels WHERE user_id = $1',
+                      [user.user_id]
+                  );
+
+                  if (!exists) {
+                      await dbManager.run(
+                          'INSERT INTO levels (user_id, username, sky_coins) VALUES ($1, $2, $3)',
+                          [user.user_id, user.username, coinsToAdd]
+                      );
+                  } else {
+                      await dbManager.run(
+                          `UPDATE levels 
+                           SET sky_coins = sky_coins + $1,
+                               username = $2,
+                               updated_at = CURRENT_TIMESTAMP
+                           WHERE user_id = $3`,
+                          [coinsToAdd, user.username, user.user_id]
+                      );
+                  }
+              }
+          }
+
+          // 3. إضافة الباقي للـ Treasury (تسجيل في bot_settings)
+          const currentTreasury = await dbManager.getBotSetting('event_treasury');
+          const newTreasury = (currentTreasury ? JSON.parse(currentTreasury.setting_value).coins : 0) + Math.floor(totalCoinsToTreasury);
+
+          await dbManager.setBotSetting('event_treasury', JSON.stringify({
+              coins: newTreasury,
+              last_updated: new Date().toISOString()
+          }), interaction.guild.id, interaction.user.id);
+
+          // 4. إعادة تعيين رصيد Sky-Tokens لجميع المستخدمين
+          await dbManager.run(
+              `UPDATE activity_rewards SET total_sky_tokens = 0 WHERE total_sky_tokens > 0`
+          );
+
+          // 5. رسالة النجاح
+          reportContainer.addSeparatorComponents(s => s.setDivider(true))
+              .addTextDisplayComponents(t => t.setContent(
+                  `### ✅ Conversion Completed!\n` +
+                  `- **${totalCoinsToPlayers.toLocaleString()} Coins** distributed to players\n` +
+                  `- **${Math.floor(totalCoinsToTreasury).toLocaleString()} Coins** added to treasury\n` +
+                  `- All Sky-Tokens reset to 0`
+              ));
+
+          await interaction.editReply({ components: [reportContainer], ...cv2 });
+
+          // 6. إرسال إعلان في السيرفر
+          const announcementChannel = await dbManager.getLogChannel(interaction.guild.id, 'announcements');
+          if (announcementChannel) {
+              const channel = await interaction.guild.channels.fetch(announcementChannel.channel_id).catch(() => null);
+              if (channel) {
+                  const winnerLabel = winner === 'sky_vanguards' ? '⚔️ Sky Vanguards' : '🌌 Aether Raiders';
+                  const loserLabel = winner === 'sky_vanguards' ? '🌌 Aether Raiders' : '⚔️ Sky Vanguards';
+
+                  const announcementContainer = new ContainerBuilder()
+                      .setAccentColor(winner === 'sky_vanguards' ? 0x5865F2 : 0x9B59B6)
+                      .addTextDisplayComponents(t => t.setContent(
+                          `## 🎉 Event Conversion Complete!\n\n` +
+                          `**🏆 Winner:** ${winnerLabel}\n` +
+                          `**🪙 Total Coins Distributed:** ${totalCoinsToPlayers.toLocaleString()}\n` +
+                          `**🏦 Total Coins to Treasury:** ${Math.floor(totalCoinsToTreasury).toLocaleString()}\n\n` +
+                          `**⚔️ ${winnerLabel}:** 50% of Sky-Tokens → Coins\n` +
+                          `**🌌 ${loserLabel}:** 25% of Sky-Tokens → Coins\n\n` +
+                          `Thank you all for participating in **Project Horizon**! 🚀`
+                      ));
+
+                  await channel.send({ components: [announcementContainer], ...cv2 });
+              }
+          }
+
+          console.log(`✅ [CONVERT] Event conversion completed by ${interaction.user.tag}`);
+
+      } catch (err) {
+          console.error('❌ /convert error:', err);
+          await interaction.editReply({ 
+              components: [errC('❌ Unexpected Error', `\`${err.message.substring(0, 500)}\``)], 
+              ...cv2 
+          });
+      }
+  }
+};

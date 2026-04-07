@@ -1,0 +1,535 @@
+const {
+    SlashCommandBuilder,
+    PermissionFlagsBits,
+    ContainerBuilder,
+    MessageFlags
+} = require('discord.js');
+
+const dbManager  = require('../Data/database');
+const { ActivityRewardsManager, ACTIVITIES, STREAK_MILESTONES } = require('../LevelSystem/activitysystem');
+
+const manager = new ActivityRewardsManager(dbManager);
+
+const cv2   = { flags: MessageFlags.IsComponentsV2 };
+const errC  = (t, d) => new ContainerBuilder().setAccentColor(0xFF4444).addTextDisplayComponents(tx => tx.setContent(`## ${t}\n${d}`));
+const warnC = (t, d) => new ContainerBuilder().setAccentColor(0xFF8800).addTextDisplayComponents(tx => tx.setContent(`## ${t}\n${d}`));
+
+// Channel IDs
+const LOG_CHANNEL_ID = '1486412315514634291';
+
+// Autocomplete list (limited activities)
+const AUTOCOMPLETE_LIMITED = [
+    { name: '🔗 Steam Linked | 250💠 | Once',               value: 'steam_linked'        },
+    { name: '🐦 Follow Twitter | 50💠 | Once',              value: 'follow_twitter'      },
+    { name: '📱 Follow Reddit | 50💠 | Once',               value: 'follow_reddit'       },
+    { name: '🎮 Follow Steam | 50💠 | Once',                value: 'follow_steam'        },
+    { name: '🤝 Invite | 5💠 each | x40',                   value: 'invite'              },
+    { name: '🏅 100% Achievements | 250💠 | Max ×3 | 🌌',   value: 'achievements'        },
+    { name: '🎮 Finish Gamersky Achievements| 200💠 | Max ×5 | 🌌',     value: 'finish_game'         },
+    { name: '🚀 Boost Server | 450💠 | Once',               value: 'boosted_server'      },
+    { name: '⭐ Wishlist | 50💠 | Once | 🌌',               value: 'wishlist'            },
+    { name: '📝 Review | 70💠 | Once | 🌌',                 value: 'review'              },
+    { name: '💡 Suggestion | 35💠 | Once',                  value: 'suggestion'          },
+    { name: '🎁 Community Giveaways | 250💠 | Max ×3 | 🌌', value: 'community_giveaways' },
+    { name: '🔍 Letter Hunt | 500💠 | No limit',            value: 'letter_hunt'         },
+];
+
+// Activities eligible for Duo Bonus
+const DUO_ELIGIBLE = new Set([
+    'msg_50', 'msg_500', 'goals_daily', 'tweet_reddit_post',
+    'bug_publisher', 'bug_skybots', 'steamachievements_weekly', // <-- استبدال
+    'letter_hunt', 'finish_game', 'achievements', 'community_giveaways', 'steam_achievement',
+]);
+
+// Unlimited integer counters (no cap)
+const UNCAPPED = new Set(['letter_hunt', 'steam_achievement',]);
+
+// Guild bonus config
+const GUILD_CFG = {
+    sky_vanguards:  { pct: 5, acts: new Set(['msg_50','msg_500','goals_daily','helper','invite','interaction','tweet_reddit_post']) },
+    aether_raiders: { pct: 8, acts: new Set(['achievements','wishlist','finish_game','steam_achievement','review','bug_publisher','bug_skybots','community_giveaways','tweet_reddit_post','steamachievements_weekly']) }, // <-- إضافة
+};
+
+// Helper functions
+const gLabel = g =>
+    g === 'sky_vanguards'  ? '⚔️ Sky Vanguards'  :
+    g === 'aether_raiders' ? '🌌 Aether Raiders' : '❓ Unknown';
+
+const gShort = g =>
+    g === 'sky_vanguards'  ? 'Sky Vanguards' :
+    g === 'aether_raiders' ? 'Aether Raiders' : 'Unknown';
+
+const gEmoji = g =>
+    g === 'sky_vanguards'  ? '⚔️' :
+    g === 'aether_raiders' ? '🌌' : '❓';
+
+const typeBadge = a =>
+    a.type === 'boolean' ? '🔒 Once' :
+    a.max  === -1        ? '♾️ No limit' :
+    `📊 Max ×${a.max}`;
+
+function progressBar(cur, max, len = 10) {
+    const filled = Math.round(Math.min(cur / max, 1) * len);
+    return '█'.repeat(filled) + '░'.repeat(len - filled);
+}
+
+// ===== 5 different overseer log messages =====
+const OVERSEER_LOG_MESSAGES = [
+    "## ✓ Mission Logged\n{activity} completed by Agent {user}, Entry recorded in Council logs",
+    "## ✓ Operation Recorded\n{activity} successfully executed by Agent {user}, Status updated",
+    "## ✓ Achievement Registered\n{activity} completed, Record assigned to Agent {user} and archived",
+    "## ✓ Report Accepted\nCompletion of {activity} by Agent {user} verified, Entry archived",
+    "## ✓ Token Transfer Completed\nRewards for {activity} issued to Agent {user}, Vault records updated"
+];
+
+const OVERSEER_PUBLIC_MESSAGES = [
+    "Your mission file has been updated, Agent, Your contribution is recorded",
+    "Your activity has been logged, Agent, The Council appreciates your work",
+    "A new entry has been added to your profile, Agent. Keep pushing forward",
+    "Your progress is noted, Agent, Continue to serve the guild",
+    "The records show your recent achievement, Agent, Well done"
+];
+
+// Streak Messages
+const STREAK_MESSAGES = {
+    7: [
+        "## ATTENTION, Agent {user}\nYou have maintained a **7-day** operational streak\n-# 💠 **90 Sky Tokens** issued",
+    ],
+    14: [
+        "## HIGH ALERT, Agent {user}\nYou have sustained a **14-day** streak. This is exceptional\n-# 💠 **160 Sky Tokens** issued",
+    ]
+};
+
+function getRandomMessage(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function getRandomStreakMessage(day, username) {
+    const messages = STREAK_MESSAGES[day];
+    if (!messages) return null;
+    return getRandomMessage(messages).replace(/{user}/g, username);
+}
+
+async function getGuildTotalTokens(guild) {
+    try {
+        const result = await dbManager.all(
+            `SELECT COALESCE(SUM(total_sky_tokens), 0) as total FROM activity_rewards WHERE guild = $1`,
+            [guild]
+        );
+        return result[0]?.total || 0;
+    } catch (error) { return 0; }
+}
+
+async function sendLogMessage(interaction, container) {
+    try {
+        const logChannel = await interaction.guild.channels.fetch(LOG_CHANNEL_ID);
+        if (logChannel) await logChannel.send({ components: [container], flags: MessageFlags.IsComponentsV2 });
+    } catch (error) { console.error('Log error:', error); }
+}
+
+async function sendForumNotification(guild, userId, mainMsg, bonusLine) {
+    try {
+        const user = await manager.getUser(userId);
+        if (!user || !user.forum_post_id) return false;
+
+        const forumChannelId = manager.getForumChannelId(user.guild);
+        const forumChannel = await guild.channels.fetch(forumChannelId);
+        if (!forumChannel) return false;
+
+        const thread = await forumChannel.threads.fetch(user.forum_post_id);
+        if (!thread) return false;
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0x5865F2)
+            .addTextDisplayComponents(t => t.setContent(mainMsg))
+            .addSeparatorComponents(s => s.setDivider(true))
+            .addTextDisplayComponents(t => t.setContent(bonusLine));
+
+        await thread.send({ components: [container], flags: MessageFlags.IsComponentsV2 });
+        return true;
+    } catch (err) {
+        console.error('❌ sendForumNotification:', err.message);
+        return false;
+    }
+}
+
+function cleanActivityLabel(label) {
+    return label.replace(/\s*\(Daily\)/i, '').trim();
+}
+
+async function getUserProgressStats(userId, activityKey, activityData) {
+    try {
+        const user = await manager.getUser(userId);
+        if (!user) return { daily: null, weekly: null, limited: null };
+
+        let daily = null, weekly = null, limited = null;
+
+        if (activityKey === 'msg_50') daily = `${user.msg_50_claimed}/3`;
+        else if (activityKey === 'goals_daily') daily = `${user.goals_daily_claimed}/1`;
+        else if (activityKey === 'msg_500') weekly = `${user.msg_500_claimed}/3`;
+        else if (activityKey === 'steamachievements_weekly') weekly = `${user.steamachievements_weekly_claimed}/1`; // <-- جديد
+        else if (activityKey === 'achievements') limited = `${user.achievements_claimed}/5`;
+        else if (activityKey === 'finish_game') limited = `${user.finish_game_claimed}/3`;
+        else if (activityKey === 'community_giveaways') limited = `${user.community_giveaways_claimed}/3`;
+        else if (activityKey === 'steam_achievement') limited = user.steam_achievement_claimed;
+        else if (activityKey === 'invite') limited = user.invite_claimed;
+        else if (activityKey === 'letter_hunt') limited = user.letter_hunt_wins;
+
+        return { daily, weekly, limited };
+    } catch (err) {
+        return { daily: null, weekly: null, limited: null };
+    }
+}
+
+const { updateUserForumPost } = require('./13 signup');
+
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('register')
+        .setDescription('Register member achievements and give Sky-Token rewards')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addUserOption(opt => opt.setName('user').setDescription('The member to register achievement for').setRequired(true))
+        .addStringOption(opt =>
+            opt.setName('activity')
+                .setDescription('Daily | Weekly activity')
+                .setRequired(false)
+                .addChoices(
+                    { name: '📨 50 Messages | 15💠 | Daily ×3 | 👥 | ⚔️',           value: 'msg_50'            },
+                    { name: '✅ Daily Quest | 15💠 + Streak | Daily ×1 | 👥 | ⚔️',  value: 'goals_daily'       },
+                    { name: '📢 Tweet/Reddit | 15💠 | Daily ×1 | 👥 | ⚔️🌌',       value: 'tweet_reddit_post' },
+                    { name: '🐞 Bug Publisher | 15💠 | Daily ×3 | 👥 | 🌌',         value: 'bug_publisher'     },
+                    { name: '🤖 Bug SkyBots | 15💠 | Daily ×3 | 👥 | 🌌',           value: 'bug_skybots'       },
+                    { name: '🛡️ Helper | 25💠 | Daily ×2 | SV only | ⚔️',           value: 'helper'            },
+                    { name: '📨 500 Messages | 250💠 | Weekly ×3 | 👥 | ⚔️',        value: 'msg_500'           },
+                    { name: '🎮 20 Steam Achievements | 50💠 | Weekly | 👥 | 🌌',   value: 'steamachievements_weekly' }, // <-- جديد
+                    { name: '🏆 Steam Achievement | 10💠 | No limit | 👥 | 🌌',      value: 'steam_achievement' }
+                ))
+        .addStringOption(opt => opt.setName('limited').setDescription('One-time or limited activities').setRequired(false).setAutocomplete(true))
+        .addBooleanOption(opt => opt.setName('bonus').setDescription('Apply Duo Bonus? (Default: auto if partner exists)').setRequired(false))
+        .addIntegerOption(opt => opt.setName('count').setDescription('Number of times to register (1–10)').setMinValue(1).setMaxValue(10).setRequired(false)),
+
+    async autocomplete(interaction) {
+        const q = interaction.options.getFocused().toLowerCase();
+        await interaction.respond(
+            AUTOCOMPLETE_LIMITED.filter(a => a.name.toLowerCase().includes(q) || a.value.includes(q)).slice(0, 25)
+        );
+    },
+
+    async execute(interaction) {
+        try {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+            const moderateRoleData = await dbManager.getBotSetting('moderateRole');
+            if (!moderateRoleData) return interaction.editReply({ components: [errC('❌ Moderate Role Not Set', 'Use `/setrole` first')], ...cv2 });
+            const roleInfo = JSON.parse(moderateRoleData.setting_value);
+            const executor = await interaction.guild.members.fetch(interaction.user.id);
+            if (!executor.roles.cache.has(roleInfo.id))
+                return interaction.editReply({ components: [errC('⛔ Permission Denied', `Only members with <@&${roleInfo.id}> can use this`)], ...cv2 });
+
+            const targetUser  = interaction.options.getUser('user');
+            const activityKey = interaction.options.getString('activity') ?? interaction.options.getString('limited');
+            let applyBonus    = interaction.options.getBoolean('bonus');
+            const count       = interaction.options.getInteger('count') ?? 1;
+
+            if (!activityKey) return interaction.editReply({ components: [errC('❌ No Activity Selected', 'Pick from **activity** or **limited**')], ...cv2 });
+
+            const activityData = ACTIVITIES[activityKey];
+            if (!activityData) return interaction.editReply({ components: [errC('❌ Unknown Activity', `\`${activityKey}\` is not valid`)], ...cv2 });
+
+            const userRecord = await manager.getUser(targetUser.id);
+            if (!userRecord) return interaction.editReply({ components: [errC('❌ User Not Registered', `**${targetUser.username}** needs to \`/signup\` first`)], ...cv2 });
+
+            if (activityData.type === 'boolean' && count > 1)
+                return interaction.editReply({ components: [warnC('⚠️ One-Time Activity', `**${activityData.label}** can only be registered once`)], ...cv2 });
+            if (activityData.type === 'boolean' && userRecord[activityData.column] === true)
+                return interaction.editReply({ components: [warnC('⚠️ Already Claimed', `**${targetUser.username}** already claimed **${activityData.label}**`)], ...cv2 });
+
+            const isCapped   = !UNCAPPED.has(activityKey) && activityData.type !== 'boolean' && activityData.max !== -1;
+            const userBefore = isCapped ? (userRecord[activityData.column] ?? 0) : 0;
+            if (isCapped) {
+                if (userBefore >= activityData.max)
+                    return interaction.editReply({ components: [warnC('⚠️ Cap Reached', `**${targetUser.username}** already hit maximum for **${activityData.label}**\nProgress: **${userBefore}/${activityData.max}**`)], ...cv2 });
+                const remaining = activityData.max - userBefore;
+                if (count > remaining)
+                    return interaction.editReply({ components: [warnC('⚠️ Count Exceeds Cap', `Only **${remaining}** slot(s) remaining\nCurrent: **${userBefore}/${activityData.max}** | Requested ×${count}`)], ...cv2 });
+            }
+
+            const isDuoEligible = DUO_ELIGIBLE.has(activityKey);
+            if (applyBonus === null) {
+                if (userRecord.partner_id && isDuoEligible) applyBonus = true;
+                else applyBonus = false;
+            } else if (applyBonus && !isDuoEligible) {
+                return interaction.editReply({ components: [warnC('⚠️ Duo Bonus N/A', `**${activityData.label}** doesn't support Duo Bonus`)], ...cv2 });
+            } else if (applyBonus && !userRecord.partner_id) {
+                return interaction.editReply({ components: [warnC('⚠️ No Partner Linked', `**${targetUser.username}** doesn't have a partner`)], ...cv2 });
+            }
+
+            let partnerRecord = null;
+            if (applyBonus && userRecord.partner_id)
+                partnerRecord = await manager.getUser(userRecord.partner_id);
+
+            const effectiveCount = activityData.type === 'boolean' ? 1 : count;
+            const baseTotal = activityData.reward * effectiveCount;
+
+            const gc = GUILD_CFG[userRecord.guild];
+            const guildBonusAmt = gc?.acts.has(activityKey)
+                ? Math.ceil(activityData.reward * (gc.pct / 100)) * effectiveCount
+                : 0;
+
+            let newSharedTimes = 0, duoBonusPerTime = 0;
+            if (partnerRecord && isDuoEligible) {
+                if (activityData.type === 'boolean') {
+                    newSharedTimes = (partnerRecord[activityData.column] === true) ? 1 : 0;
+                } else {
+                    const partnerBefore = partnerRecord[activityData.column] ?? 0;
+                    newSharedTimes = Math.max(0,
+                        Math.min(userBefore + count, partnerBefore) -
+                        Math.min(userBefore, partnerBefore)
+                    );
+                }
+                duoBonusPerTime = newSharedTimes > 0 ? Math.ceil(activityData.reward * 0.20) : 0;
+            }
+            const duoBonusUser    = duoBonusPerTime * newSharedTimes;
+            const duoBonusPartner = duoBonusPerTime * newSharedTimes;
+
+            let userReward = baseTotal + guildBonusAmt + duoBonusUser;
+
+            // ===== DB WRITES =====
+            if (activityData.type === 'boolean') {
+                await dbManager.run(
+                    `UPDATE activity_rewards
+                     SET ${activityData.column} = true,
+                         total_sky_tokens = total_sky_tokens + $1,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE user_id = $2`,
+                    [userReward, targetUser.id]
+                );
+            } else {
+                await dbManager.run(
+                    `UPDATE activity_rewards
+                     SET ${activityData.column} = ${activityData.column} + $1,
+                         total_sky_tokens = total_sky_tokens + $2,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE user_id = $3`,
+                    [count, userReward, targetUser.id]
+                );
+            }
+
+            // ===== ربط تلقائي لـ steamachievements_weekly =====
+            let autoWeeklyRewardGiven = false;
+            if (activityKey === 'steam_achievement') {
+                // الحصول على العدد الجديد للإنجازات بعد الإضافة
+                const afterUpdate = await manager.getUser(targetUser.id);
+                const totalSteam = afterUpdate.steam_achievement_claimed;
+
+                // إذا وصل العدد إلى 20 أو تجاوزه، ولم يكن قد تم منح المكافأة الأسبوعية بعد
+                if (totalSteam >= 20 && (userRecord.steamachievements_weekly_claimed ?? 0) < 1) {
+                    // تحديث العداد الأسبوعي إلى 1
+                    await dbManager.run(
+                        `UPDATE activity_rewards
+                         SET steamachievements_weekly_claimed = 1,
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE user_id = $1`,
+                        [targetUser.id]
+                    );
+
+                    // منح المكافأة الأسبوعية (50💠 + Guild bonus)
+                    const weeklyReward = 50;
+                    let weeklyGuildBonus = 0;
+                    if (GUILD_CFG[userRecord.guild]?.acts.has('steamachievements_weekly')) {
+                        weeklyGuildBonus = Math.ceil(weeklyReward * (GUILD_CFG[userRecord.guild].pct / 100));
+                    }
+                    const totalWeeklyReward = weeklyReward + weeklyGuildBonus;
+
+                    await dbManager.run(
+                        `UPDATE activity_rewards
+                         SET total_sky_tokens = total_sky_tokens + $1
+                         WHERE user_id = $2`,
+                        [totalWeeklyReward, targetUser.id]
+                    );
+
+                    autoWeeklyRewardGiven = true;
+                    userReward += totalWeeklyReward; // لإظهار المجموع في الرد
+                }
+            }
+
+            let streakResult = null, streakMilestone = null;
+            if (activityKey === 'goals_daily') {
+                streakResult = await manager.incrementQuestStreak(targetUser.id);
+                if (streakResult?.hitMilestone && (streakResult.newStreak === 7 || streakResult.newStreak === 14)) {
+                    streakMilestone = streakResult.newStreak;
+                }
+            }
+
+            let partnerAfter = null, partnerBonusApplied = 0;
+            if (partnerRecord && duoBonusPartner > 0) {
+                await dbManager.run(
+                    `UPDATE activity_rewards
+                     SET total_sky_tokens = total_sky_tokens + $1,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE user_id = $2`,
+                    [duoBonusPartner, partnerRecord.user_id]
+                );
+                partnerAfter = await manager.getUser(partnerRecord.user_id);
+                partnerBonusApplied = duoBonusPartner;
+
+                const mainMsg = `### Partner ${targetUser.username} completion detected\n**${activityData.label}** finalized`;
+                const bonusLine = `Bonus allocation issued: **+${duoBonusPartner} 💠** | Total: **${partnerAfter?.total_sky_tokens ?? 0} 💠**`;
+                await sendForumNotification(interaction.guild, partnerRecord.user_id, mainMsg, bonusLine);
+            }
+
+            const userAfter = await manager.getUser(targetUser.id);
+            const newValue  = activityData.type === 'boolean' ? 1 : (userBefore + count);
+
+            const guildTotal = await getGuildTotalTokens(userRecord.guild);
+            const guildName = gShort(userRecord.guild);
+            const guildEmoji = gEmoji(userRecord.guild);
+
+            const progressStats = await getUserProgressStats(targetUser.id, activityKey, activityData);
+
+            // Admin ephemeral reply
+            const rewardLines = [
+                `🏅 **Base:** ${activityData.reward} 💠` + (effectiveCount > 1 ? ` × ${effectiveCount} = **${baseTotal} 💠**` : ''),
+            ];
+            if (guildBonusAmt > 0)
+                rewardLines.push(`* ${gLabel(userRecord.guild).split(' ')[0]} **Guild +${gc.pct}%:** | **+${guildBonusAmt} 💠**`);
+            if (duoBonusUser > 0)
+                rewardLines.push(`\n### 🤝 Duo +20%:\n* **+${duoBonusUser} 💠** _(${newSharedTimes} shared ${newSharedTimes === 1 ? 'completion' : 'completions'})_`);
+            if (autoWeeklyRewardGiven)
+                rewardLines.push(`\n### Weekly Bonus!\n* Achieved 20 Steam Achievements! **+50 💠** weekly reward`);
+            rewardLines.push(`* Total Added: **${userReward} 💠**`);
+
+            let progressSection = '';
+            if (isCapped) {
+                const bar = progressBar(newValue, activityData.max);
+                const pct = Math.round((newValue / activityData.max) * 100);
+                progressSection = `\n\n**📊 Progress**\n\`${bar}\` **${newValue}/${activityData.max}** (${pct}%)`;
+            }
+
+            let streakSection = '';
+            if (streakResult?.success) {
+                const nextMs = streakResult.newStreak < 7 ? 7 : streakResult.newStreak < 14 ? 14 : null;
+                const msText = streakResult.hitMilestone
+                    ? `🎉 Milestone reached! **+${streakResult.milestoneBonus} 💠** bonus`
+                    : nextMs
+                        ? `Next milestone at **Day ${nextMs}** (+${STREAK_MILESTONES[nextMs]} 💠)`
+                        : `🏆 All milestones completed`;
+                streakSection = `\n\n**🔥 Quest Streak: ${streakResult.newStreak}**\n> ${msText}`;
+            }
+
+            let partnerSection = '';
+            if (partnerRecord) {
+                if (partnerBonusApplied > 0) {
+                    partnerSection = `\n\n### 🤝 Partner: ${partnerRecord.username}\n* ✅ Received **+${partnerBonusApplied} 💠** Duo Bonus\n* Their vault: **${partnerAfter?.total_sky_tokens ?? '?'} 💠**`;
+                } else if (applyBonus) {
+                    const partnerProgress = activityData.type === 'boolean'
+                        ? (partnerRecord[activityData.column] ? '✅ Done' : '❌ Not done')
+                        : `${partnerRecord[activityData.column] ?? 0}` + (activityData.max !== -1 ? `/${activityData.max}` : '');
+                    partnerSection = `\n\n**🤝 Partner: ${partnerRecord.username}**\n* ⚠️ No new shared completions | Duo Bonus not triggered\n* Their progress: **${partnerProgress}**`;
+                }
+            }
+
+            const adminContainer = new ContainerBuilder()
+                .setAccentColor(0x00CC66)
+                .addTextDisplayComponents(t => t.setContent(`## ✅ Registration Successful`))
+                .addSeparatorComponents(s => s.setDivider(true))
+                .addSectionComponents(s =>
+                    s.addTextDisplayComponents(t => t.setContent(
+                        `### ${targetUser} | ${gLabel(userRecord.guild)}\n` +
+                        `**📋 Activity:**\n-# ${activityData.label} | ${typeBadge(activityData)}` +
+                        (effectiveCount > 1 ? `  **×${effectiveCount}**` : '')
+                    ))
+                    .setThumbnailAccessory(th =>
+                        th.setDescription(targetUser.username).setURL(targetUser.displayAvatarURL({ extension: 'png', size: 128 }))
+                    )
+                )
+                .addSeparatorComponents(s => s.setDivider(true))
+                .addTextDisplayComponents(t => t.setContent(
+                    `### 💰 Reward Breakdown\n* ${rewardLines.join('\n')}${progressSection}${streakSection}${partnerSection}`
+                ))
+                .addSeparatorComponents(s => s.setDivider(true))
+                .addTextDisplayComponents(t => t.setContent(
+                    `-# Vault Balance: **${userAfter?.total_sky_tokens ?? 0} 💠** | ` +
+                    ` Registered by ${interaction.user.tag}`
+                ));
+
+            await interaction.editReply({ components: [adminContainer], ...cv2 });
+
+            // Public message
+            let overseerMessage = getRandomMessage(OVERSEER_PUBLIC_MESSAGES);
+            const cleanLabel = cleanActivityLabel(activityData.label);
+            if (overseerMessage.includes(',')) {
+                overseerMessage = overseerMessage.replace(',', `, **${cleanLabel}**`);
+            } else if (overseerMessage.includes('Agent')) {
+                overseerMessage = overseerMessage.replace('Agent', `**${cleanLabel}**, Agent`);
+            } else {
+                overseerMessage = `${overseerMessage} | **${cleanLabel}**`;
+            }
+
+            let rewardLine = `Acquired: **+${userReward} 💠** | Total: **${userAfter?.total_sky_tokens ?? 0} 💠**`;
+            if (progressStats.daily) rewardLine += ` | Daily: **${progressStats.daily}**`;
+            if (progressStats.weekly) rewardLine += ` | Weekly: **${progressStats.weekly}**`;
+            if (progressStats.limited) rewardLine += ` | Limited: **${progressStats.limited}**`;
+            if (duoBonusUser > 0) rewardLine += ` | **👥 Duo Boost +${duoBonusUser} 💠**`;
+            if (autoWeeklyRewardGiven) rewardLine += ` | **Weekly Bonus +50 💠**`;
+
+            const publicContainer = new ContainerBuilder()
+                .setAccentColor(0x0073ff)
+                .addTextDisplayComponents(t => t.setContent(`${overseerMessage}`))
+                .addSeparatorComponents(s => s.setDivider(true))
+                .addTextDisplayComponents(t => t.setContent(rewardLine));
+
+            await interaction.channel.send({ components: [publicContainer], flags: MessageFlags.IsComponentsV2 });
+
+            // Streak milestone
+            if (streakMilestone) {
+                const streakMessage = getRandomStreakMessage(streakMilestone, targetUser.username);
+                if (streakMessage) {
+                    const streakContainer = new ContainerBuilder()
+                        .setAccentColor(0xFFAA00)
+                        .addTextDisplayComponents(t => t.setContent(`### ${streakMessage}`));
+                    await interaction.channel.send({ components: [streakContainer], flags: MessageFlags.IsComponentsV2 });
+
+                    const logStreakContainer = new ContainerBuilder()
+                        .setAccentColor(0xFFAA00)
+                        .addTextDisplayComponents(t => t.setContent(`### ${streakMessage}`));
+                    await sendLogMessage(interaction, logStreakContainer);
+                }
+            }
+
+            // Log message
+            let logMessage = getRandomMessage(OVERSEER_LOG_MESSAGES);
+            logMessage = logMessage.replace('{user}', `**${targetUser.username}**`).replace('{activity}', `**${activityData.label}**`);
+
+            const logContainer = new ContainerBuilder()
+                .setAccentColor(0x0073ff)
+                .addTextDisplayComponents(t => t.setContent(logMessage));
+
+            if (partnerBonusApplied > 0) {
+                const duoLine = `-# 🤝 Duo Bonus Applied **+${partnerBonusApplied} 💠** | Linked Agent: **${partnerRecord.username}**`;
+                logContainer.addSeparatorComponents(s => s.setDivider(true))
+                    .addTextDisplayComponents(t => t.setContent(duoLine));
+            }
+            if (autoWeeklyRewardGiven) {
+                const weeklyLine = `-# 🎉 Auto Weekly Bonus (20 Achievements) **+50 💠** awarded to ${targetUser.username}`;
+                logContainer.addSeparatorComponents(s => s.setDivider(true))
+                    .addTextDisplayComponents(t => t.setContent(weeklyLine));
+            }
+
+            logContainer.addSeparatorComponents(s => s.setDivider(true))
+                .addTextDisplayComponents(t => t.setContent(`-# **${guildEmoji} ${guildName} Vault: ${guildTotal.toLocaleString()} 💠**`));
+
+            await sendLogMessage(interaction, logContainer);
+
+            await updateUserForumPost(interaction.guild, targetUser.id);
+            if (partnerAfter) await updateUserForumPost(interaction.guild, partnerRecord.user_id);
+
+            console.log(`📝 [REGISTER] ${interaction.user.tag} → ${targetUser.username} | ${activityKey} ×${effectiveCount} | +${userReward} 💠` +
+                (duoBonusUser > 0 ? ` (Duo ×${newSharedTimes})` : '') +
+                (streakMilestone ? ` | 🎉 STREAK ${streakMilestone} DAYS!` : '') +
+                (autoWeeklyRewardGiven ? ` | 🎯 AUTO WEEKLY BONUS` : '') +
+                ` | Guild: ${guildName} | Total: ${guildTotal}`);
+
+        } catch (err) {
+            console.error('❌ /register error:', err);
+            await interaction.editReply({ components: [errC('❌ Unexpected Error', `\`${err.message.substring(0, 500)}\``)], ...cv2 });
+        }
+    },
+};

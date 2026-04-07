@@ -1,0 +1,107 @@
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const dbManager = require('../Data/database');
+const { EGG_CONFIG } = require('../LevelSystem/1activityegg');
+
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('adoptegg')
+        .setDescription('Register in the community and receive your starter egg!'),
+
+    async execute(interaction) {
+        await interaction.deferReply({ ephemeral: true });
+
+        try {
+            const userId = interaction.user.id;
+            const username = interaction.user.username;
+
+            // 1. التحقق من التوثيق
+            const verified = await dbManager.get(
+                `SELECT 1 FROM discord_verify_steam WHERE discord_id = $1 AND status = 'verified'`,
+                [userId]
+            );
+
+            if (!verified) {
+                return interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#FF4444')
+                        .setTitle('❌ Not Verified!')
+                        .setDescription('You need to verify your Steam account first using `/verify me`.')]
+                });
+            }
+
+            // 2. التحقق من عدم وجود أي بيضة نشطة (normal أو special)
+            const existingEgg = await dbManager.get(
+                `SELECT * FROM egg_holders WHERE user_id = $1 AND hatched = false`,
+                [userId]
+            );
+
+            if (existingEgg) {
+                const colorData = EGG_CONFIG.EGG_COLORS[existingEgg.egg_color] || { emoji: '🥚', label: 'Egg' };
+                const eggLabel = existingEgg.egg_type === 'special'
+                    ? '🐰 Spring Egg'
+                    : `${colorData.emoji} ${colorData.label}`;
+
+                return interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#FFA500')
+                        .setTitle('⚠️ | Already Have an Egg!')
+                        .setDescription(
+                            `You already have a **${eggLabel}**!\n\n` +
+                            `* 🌡️ Current Heat: **${parseFloat(existingEgg.heat).toFixed(2)}%**\n` +
+                            `* Use \`/eggstatus\` to check your egg status\n\n` +
+                            `-# You can only have one egg at a time`
+                        )]
+                });
+            }
+
+            // 3. توليد لون عشوائي للبيضة
+            const eggColor = this.rollEggColor();
+
+            // 4. إدخال البيضة في قاعدة البيانات
+            await dbManager.run(
+                `INSERT INTO egg_holders (user_id, username, egg_color, egg_type, heat, msg_counter)
+                 VALUES ($1, $2, $3, 'normal', 0, 0)`,
+                [userId, username, eggColor]
+            );
+
+            // 5. إنشاء سجل في activity_rewards إذا لم يكن موجوداً
+            await dbManager.run(
+                `INSERT INTO activity_rewards (user_id, username)
+                 VALUES ($1, $2)
+                 ON CONFLICT (user_id) DO NOTHING`,
+                [userId, username]
+            );
+
+            // 6. الرد
+            const colorData = EGG_CONFIG.EGG_COLORS[eggColor];
+            const embed = new EmbedBuilder()
+                .setColor(colorData.embedColor)
+                .setTitle(`${colorData.emoji} | You received a **${colorData.label}** starter egg`)
+                .setDescription(
+                    `* 🌡️ Heat: **0%**\n` +
+                    `* 💬 Every **${EGG_CONFIG.USER_MSG_PER_HEAT} messages** = **+1% heat**\n` +
+                    `* 🎯 Reach **100%** to qualify for the hatching ceremony!\n` +
+                    `-# Start chatting in chat channel to warm up your egg!`
+                )
+                .setFooter({ text: 'Your egg is now active!' });
+
+            await interaction.editReply({ embeds: [embed] });
+
+            console.log(`✅ ${username} adopted a ${eggColor} egg.`);
+
+        } catch (error) {
+            console.error('❌ /adoptegg error:', error);
+            await interaction.editReply({ content: '❌ An error occurred during signup.' });
+        }
+    },
+
+    rollEggColor() {
+        const random = Math.random();
+        let cumulative = 0;
+        for (const [colorKey, colorData] of Object.entries(EGG_CONFIG.EGG_COLORS)) {
+            cumulative += colorData.chance;
+            if (random < cumulative) return colorKey;
+        }
+        return 'green';
+    }
+};

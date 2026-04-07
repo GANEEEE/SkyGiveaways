@@ -1,0 +1,160 @@
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const dbManager = require('../Data/database');
+const { EGG_CONFIG } = require('../LevelSystem/1activityegg');
+
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('crackegg')
+        .setDescription('Convert all active eggs for ALL users into coins (Admin only).'),
+
+    async execute(interaction) {
+        await interaction.deferReply({ ephemeral: true });
+
+        try {
+            // ===== Permission Check =====
+            const moderateRoleData = await dbManager.getBotSetting('moderateRole');
+            if (!moderateRoleData) {
+                return interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#8B0000')
+                        .setTitle('❌ │ Moderate Role Not Set')
+                        .setDescription('Use `/setrole` to configure the moderation role first.')]
+                });
+            }
+
+            const roleInfo = JSON.parse(moderateRoleData.setting_value);
+            const executor = await interaction.guild.members.fetch(interaction.user.id);
+
+            if (!executor.roles.cache.has(roleInfo.id)) {
+                return interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#8B0000')
+                        .setTitle('⛔ │ Permission Denied')
+                        .setDescription(`This command is only for <@&${roleInfo.id}>.`)]
+                });
+            }
+
+            // 1. Fetch ALL active eggs from ALL users
+            const allEggs = await dbManager.all(
+                `SELECT * FROM egg_holders WHERE hatched = false ORDER BY user_id`
+            );
+
+            if (!allEggs || allEggs.length === 0) {
+                return interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#FF4444')
+                        .setTitle('❌ No Active Eggs')
+                        .setDescription('No community members have active eggs to crack.')]
+                });
+            }
+
+            // 2. Group eggs by user
+            const userEggsMap = new Map(); // user_id -> { username, eggs: [], totalCoins: 0 }
+
+            for (const egg of allEggs) {
+                const userId = egg.user_id;
+                const heat = parseFloat(egg.heat) || 0;
+                const roundedHeat = Math.ceil(heat);
+
+                if (roundedHeat < 1) continue; // Skip eggs with less than 1% heat
+
+                const isSpecial = egg.egg_type === 'special';
+                const rate = isSpecial ? 125 : 100;
+                const coins = roundedHeat * rate;
+
+                if (!userEggsMap.has(userId)) {
+                    userEggsMap.set(userId, {
+                        username: egg.username,
+                        eggs: [],
+                        totalCoins: 0
+                    });
+                }
+
+                const userData = userEggsMap.get(userId);
+                userData.eggs.push({
+                    type: isSpecial ? 'special' : 'normal',
+                    color: egg.egg_color,
+                    heat: roundedHeat,
+                    coins: coins
+                });
+                userData.totalCoins += coins;
+            }
+
+            if (userEggsMap.size === 0) {
+                return interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#FFA500')
+                        .setTitle('⚠️ No Heat')
+                        .setDescription('All active eggs are below 1% heat. Users need to chat more to warm them up!')]
+                });
+            }
+
+            // 3. Process each user: add coins and mark eggs as hatched
+            let totalCoinsGiven = 0;
+            let totalEggsCracked = 0;
+            const processedUsers = [];
+
+            for (const [userId, userData] of userEggsMap.entries()) {
+                // Add coins to user
+                await dbManager.ensureUserExists(userId, userData.username);
+                await dbManager.run(
+                    `UPDATE levels SET sky_coins = sky_coins + $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
+                    [userData.totalCoins, userId]
+                );
+
+                totalCoinsGiven += userData.totalCoins;
+                totalEggsCracked += userData.eggs.length;
+
+                processedUsers.push({
+                    userId,
+                    username: userData.username,
+                    eggsCount: userData.eggs.length,
+                    coins: userData.totalCoins
+                });
+            }
+
+            // 4. Mark ALL eggs as hatched
+            await dbManager.run(
+                `UPDATE egg_holders SET hatched = true WHERE hatched = false`
+            );
+
+            // 5. Build the response
+            const embed = new EmbedBuilder()
+                .setColor('#FFD700')
+                .setTitle('🥚 Global Egg Cracking Ceremony!')
+                .setDescription(
+                    `All active eggs have been cracked across the server!\n\n` +
+                    `**Summary:**\n` +
+                    `* 👥 Users affected: **${processedUsers.length}**\n` +
+                    `* 🥚 Total eggs cracked: **${totalEggsCracked}**\n` +
+                    `* 💰 Total coins distributed: **${totalCoinsGiven.toLocaleString()}**`
+                )
+                .setFooter({ text: `Cracked by ${interaction.user.username} • All eggs have been retired.` });
+
+            // Add top users (up to 10)
+            const topUsers = processedUsers.sort((a, b) => b.coins - a.coins).slice(0, 10);
+
+            if (topUsers.length > 0) {
+                let topUsersText = '';
+                for (let i = 0; i < topUsers.length; i++) {
+                    const user = topUsers[i];
+                    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '•';
+                    topUsersText += `${medal} **${user.username}** — ${user.eggsCount} egg${user.eggsCount > 1 ? 's' : ''} → 💰 ${user.coins.toLocaleString()}\n`;
+                }
+                embed.addFields({
+                    name: '🏆 Top Crackers',
+                    value: topUsersText,
+                    inline: false
+                });
+            }
+
+            await interaction.editReply({ embeds: [embed] });
+
+            console.log(`🥚 GLOBAL CRACK: ${interaction.user.username} cracked ${totalEggsCracked} eggs for ${processedUsers.length} users → ${totalCoinsGiven.toLocaleString()} coins total`);
+
+        } catch (error) {
+            console.error('❌ /crackegg error:', error);
+            await interaction.editReply({ content: '❌ An error occurred while cracking eggs.' });
+        }
+    }
+};
