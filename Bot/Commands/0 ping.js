@@ -7,7 +7,7 @@ const {
 
 module.exports = {
   data: new SlashCommandBuilder()
-      .setName('pingiveaways')
+      .setName('pingcup')
       .setDescription('🏓 Check bot latency')
       .setDMPermission(true),
 

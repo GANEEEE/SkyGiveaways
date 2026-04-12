@@ -143,7 +143,7 @@ module.exports = {
 
             // 1. Presence
             client.user.setPresence({
-                activities: [{ name: '💬 | Connecting the Community', type: ActivityType.Listening }],
+                activities: [{ name: '🏆 | Where Luck Meets Rewards', type: ActivityType.Listening }],
                 status: 'online'
             });
             console.log(`✅ Bot logged in as ${client.user.tag}`);
