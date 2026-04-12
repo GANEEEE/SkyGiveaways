@@ -39,7 +39,7 @@ const VIP_ROLES_HIERARCHY = [GAMER_1_ID, GAMER_2_ID, GAMER_3_ID, GAMER_4_ID];
  * DEFAULT_BLACKLIST_ROLES:
  * يتم تطبيقها دايمًا إلا لو المستخدم دخل blacklist مخصصة → تحل محلها
  */
-const DEFAULT_BLACKLIST_ROLES = ['1387054331152433312'];
+const DEFAULT_BLACKLIST_ROLES = ['1380141514293776466'];
 const LRM = '\u200E';
 
 const previewSessions = new Map();
@@ -953,14 +953,16 @@ module.exports = {
                         { roleId: SKYWELL_LVL1_ID, label: 'Skywell Lvl 1', required: 0 },
                         { roleId: SKYWELL_LVL2_ID, label: 'Skywell Lvl 2', required: 0 },
                         { roleId: SKYWELL_LVL3_ID, label: 'Skywell Lvl 3', required: 0 },
-                        { roleId: SKYWELL_LVL4_ID, label: 'Skywell Lvl 4', required: 0 }
+                        { roleId: SKYWELL_LVL4_ID, label: 'Skywell Lvl 4', required: 0 },
+                        { roleId: SKYWELL_LVL5_ID, label: 'Skywell Lvl 5', required: 0 }
                     ]
                 },
                 multiplier: {
                     [SKYWELL_LVL1_ID]: 2,
                     [SKYWELL_LVL2_ID]: 4,
                     [SKYWELL_LVL3_ID]: 6,
-                    [SKYWELL_LVL4_ID]: 8
+                    [SKYWELL_LVL4_ID]: 8,
+                    [SKYWELL_LVL5_ID]: 10
                 },
                 imageUrl: null
             }
