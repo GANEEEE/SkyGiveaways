@@ -1,4 +1,4 @@
-// System/GiveawaysBack.js
+// System/CommunityGiveawaysBack.js
 
 const dbManager = require('../Data/database');
 
@@ -46,26 +46,29 @@ class SimpleRateLimiter {
 const rl = new SimpleRateLimiter();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Constants
+const WINNER_ROLE_ID = '1395730680926965781';
+
 // ============================================================
 
 async function restoreActiveGiveaways(client) {
     try {
-        console.log('🔄 Restoring active giveaways...');
+        console.log('🔄 Restoring active community giveaways...');
         await endExpiredGiveaways(client);
         await restoreActiveOnes(client);
-        console.log('✅ Giveaway restoration complete');
+        console.log('✅ Community giveaway restoration complete');
     } catch (error) {
-        console.error('❌ Error in giveaway restoration:', error);
+        console.error('❌ Error in community giveaway restoration:', error);
     }
 }
 
 // ============================================================
 async function endExpiredGiveaways(client) {
     try {
-        const expiredGiveaways = await dbManager.getExpiredActiveGiveaways();
+        const expiredGiveaways = await dbManager.getExpiredActiveCommunityGiveaways();
         if (expiredGiveaways.length === 0) return;
 
-        console.log(`⏰ Found ${expiredGiveaways.length} expired giveaways to end...`);
+        console.log(`⏰ Found ${expiredGiveaways.length} expired community giveaways to end...`);
 
         for (const giveaway of expiredGiveaways) {
             try {
@@ -82,12 +85,12 @@ async function endExpiredGiveaways(client) {
                 );
                 if (!message) continue;
 
-                const giveawayCommand = client.commands.get('giveaway');
+                const giveawayCommand = client.commands.get('communitygiveaway');
                 if (!giveawayCommand) continue;
 
-                console.log(`⏰ Ending expired giveaway: ${giveaway.giveaway_code}`);
+                console.log(`⏰ Ending expired community giveaway: ${giveaway.giveaway_code}`);
 
-                const result = await dbManager.endGiveaway(giveaway.giveaway_code);
+                const result = await dbManager.endCommunityGiveaway(giveaway.giveaway_code);
                 if (!result.success) continue;
 
                 if (result.noParticipants) {
@@ -113,7 +116,7 @@ async function endExpiredGiveaways(client) {
                             if (!member) continue;
 
                             await rl.run(
-                                () => member.roles.add('1395730680926965781'),
+                                () => member.roles.add(WINNER_ROLE_ID),
                                 `add_role_${winnerId}`
                             );
                         } catch (roleError) {
@@ -134,13 +137,13 @@ async function endExpiredGiveaways(client) {
                     );
                 }
 
-                console.log(`✅ Ended expired giveaway: ${giveaway.giveaway_code}`);
+                console.log(`✅ Ended expired community giveaway: ${giveaway.giveaway_code}`);
 
                 // delay بين كل giveaway كاملة
                 await sleep(500);
 
             } catch (error) {
-                console.error(`❌ Error ending giveaway ${giveaway.giveaway_code}:`, error.message);
+                console.error(`❌ Error ending community giveaway ${giveaway.giveaway_code}:`, error.message);
             }
         }
 
@@ -152,10 +155,10 @@ async function endExpiredGiveaways(client) {
 // ============================================================
 async function restoreActiveOnes(client) {
     try {
-        const activeGiveaways = await dbManager.getActiveGiveawaysForRestore();
+        const activeGiveaways = await dbManager.getActiveCommunityGiveawaysForRestore();
         if (activeGiveaways.length === 0) return;
 
-        console.log(`📦 Found ${activeGiveaways.length} active giveaways to restore`);
+        console.log(`📦 Found ${activeGiveaways.length} active community giveaways to restore`);
 
         for (const giveaway of activeGiveaways) {
             try {
@@ -174,7 +177,7 @@ async function restoreActiveOnes(client) {
                 const endsAt = new Date(giveaway.ends_at);
                 if (endsAt.getTime() - Date.now() <= 0) continue;
 
-                const giveawayCommand = client.commands.get('giveaway');
+                const giveawayCommand = client.commands.get('communitygiveaway');
                 if (!giveawayCommand) continue;
 
                 const participantsCount = giveaway.participants?.length || 0;
@@ -212,16 +215,16 @@ async function restoreActiveOnes(client) {
                     giveaway.winners_count, client, giveawayData
                 );
                 giveawayCommand.setupConfirmCollector?.(
-                    message, giveaway.giveaway_code, client
+                    message, giveaway.giveaway_code, client, giveawayCommand
                 );
 
-                console.log(`✅ Restored giveaway: ${giveaway.giveaway_code} (${participantsCount} participants)`);
+                console.log(`✅ Restored community giveaway: ${giveaway.giveaway_code} (${participantsCount} participants)`);
 
                 // delay بين كل giveaway
                 await sleep(300);
 
             } catch (error) {
-                console.error(`❌ Error restoring giveaway ${giveaway.giveaway_code}:`, error.message);
+                console.error(`❌ Error restoring community giveaway ${giveaway.giveaway_code}:`, error.message);
             }
         }
 

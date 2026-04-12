@@ -7,7 +7,7 @@ const {
 
 module.exports = {
   data: new SlashCommandBuilder()
-      .setName('pingchat')
+      .setName('pingiveaways')
       .setDescription('🏓 Check bot latency')
       .setDMPermission(true),
 
@@ -61,7 +61,7 @@ module.exports = {
                       `API: ${apiLatency} ms\n` +
 
                       '```\n' +
-                      '-# Powered by SkyChat'
+                      '-# Powered by SkyGiveaways'
                       /*'## **📈 STATUS**\n' +
                       `${statusEmoji} **${statusText}**\n\n` +
 

@@ -2,12 +2,9 @@ const { ActivityType } = require('discord.js');
 const { Events } = require('discord.js');
 const dbManager = require('../Data/database');
 const deployCommands = require('../Utlis/DeployCommands');
-const chatXPSystem = require('../LevelSystem/chatsystem');
-const voiceXPSystem = require('../LevelSystem/voicesystem');
-const bumpHandler = require('../LevelSystem/bumpsystem');
-const voteHandler = require('../LevelSystem/votesystem');
 const restoreActiveGiveaways = require('../System/GiveawaysBack');
-const { couponSystem } = require('../LevelSystem/couponsystem');
+const restoreCommunityGiveaways = require('../System/GiveawaysCommunityBack');
+const { setupChatXPTracking } = require('../LevelSystem/chatsystem');
 
 // ============================================================
 // 1. RATE LIMIT MANAGER
@@ -163,7 +160,7 @@ module.exports = {
                 console.error('❌ Database check failed:', error.message);
             }
 
-            // 3. استعادة الجيفاواي — عنده rate limiter خاص بيه في GiveawaysBack.js
+            // 3. استعادة الجيفاواي
             try {
                 await restoreActiveGiveaways(client);
             } catch (error) {
@@ -174,167 +171,24 @@ module.exports = {
                 }
             }
 
-            // 4. XP Systems
-            if (chatXPSystem && typeof chatXPSystem.setupChatXPTracking === 'function') {
-                chatXPSystem.setupChatXPTracking(client);
-                console.log('✅ Chat XP System started');
-            }
-            if (voiceXPSystem && typeof voiceXPSystem.setupVoiceXPTracking === 'function') {
-                voiceXPSystem.setupVoiceXPTracking(client);
-                console.log('✅ Voice XP System started');
-            }
-
-            // 5. نظام الـ Bump
-            client.on(Events.MessageCreate, async (message) => {
-                if (message.author.id === '813077581749288990') {
-                    if (bumpHandler && typeof bumpHandler.execute === 'function') {
-                        await bumpHandler.execute(message, client);
-                    }
-                }
-            });
-
-            // 6. نظام التصويت
-            client.on(Events.MessageCreate, async (message) => {
-                try {
-                    if (message.author.id === '1180555656969863228') {
-                        console.log('🗳️ === VOTE BOT DETECTED ===');
-                        if (voteHandler && typeof voteHandler.execute === 'function') {
-                            await voteHandler.execute(message, client);
-                        }
-                    }
-                } catch (error) {
-                    console.error('❌ Error in vote handler:', error);
-                }
-            });
-
-            // 7. Shop Discount Lottery
+            // 4. استعادة الجيفاواي الخاصة بالمجتمع
             try {
-                console.log('🎰 Starting shop discount lottery...');
-                const lotteryResult = await retryQueue.execute(
-                    () => dbManager.runDailyDiscountLottery(),
-                    { taskName: 'initial_lottery', timeout: 15000 }
-                );
-                console.log('✅ First lottery result:', lotteryResult.success ? 'SUCCESS' : 'FAILED');
-                if (lotteryResult.success) {
-                    console.log(`🛍️ SALE APPLIED! ${lotteryResult.discount}% off on ${lotteryResult.item.name}`);
+                await restoreCommunityGiveaways(client);
+            } catch (error) {
+                if (error.status === 429) {
+                    console.error(`❌ Rate limited during community giveaway restore — retry after ${error.retryAfter}s`);
                 } else {
-                    console.log(`ℹ️ No sale: ${lotteryResult.message || lotteryResult.code}`);
+                    console.error('❌ Community giveaway restore failed:', error.message);
                 }
-            } catch (lotteryError) {
-                console.error('❌ Shop lottery error:', lotteryError.message);
             }
 
-            // كل 12 ساعة
-            setInterval(async () => {
-                try {
-                    console.log('🔄 Running scheduled shop lottery...');
-                    const result = await retryQueue.execute(
-                        () => dbManager.runDailyDiscountLottery(),
-                        { taskName: 'scheduled_lottery', timeout: 15000 }
-                    );
-                    if (result.success) {
-                        console.log(`🎉 NEW sale applied: ${result.discount}% off on ${result.item.name}`);
-                    } else {
-                        if (result.currentDiscount) {
-                            console.log(`📝 Lottery failed → Keeping OLD discount: ${result.currentDiscount.description || result.currentDiscount.role_id} (${result.currentDiscount.current_discount}% off)`);
-                        } else {
-                            console.log(`📝 No sale this time: ${result.code || 'No eligible items'}`);
-                        }
-                    }
-                } catch (intervalError) {
-                    console.error('❌ Interval lottery error:', intervalError.message);
-                }
-            }, 12 * 60 * 60 * 1000);
-
-            // 8. تنظيف التخفيضات القديمة
+            // 5. تشغيل نظام تتبع النشاط (Activity System)
             try {
-                const cleaned = await retryQueue.execute(
-                    () => dbManager.cleanupOldDiscounts(),
-                    { taskName: 'cleanup_discounts', timeout: 15000 }
-                );
-                if (cleaned > 0) console.log(`🧹 Cleaned ${cleaned} old discounts`);
-            } catch (cleanupError) {
-                console.error('❌ Cleanup error:', cleanupError.message);
-            }
-
-            // 9. تنظيف الكوبونات
-            try {
-                await retryQueue.execute(
-                    () => couponSystem.cleanupExpiredCoupons(),
-                    { taskName: 'cleanup_coupons', timeout: 15000 }
-                );
-                console.log('✅ Initial coupon cleanup done');
+                setupChatXPTracking(client);
             } catch (error) {
-                console.error('❌ Coupon cleanup error:', error.message);
+                console.error('❌ Failed to start chat tracking system:', error.message);
             }
 
-            // 10. تنظيف الـ Buffs — بياخد client يعني Discord API calls
-            try {
-                console.log('🧹 Starting expired buffs cleanup job...');
-                const GUILD_ID = process.env.GUILD_ID;
-
-                const initialResult = await retryQueue.execute(
-                    () => dbManager.cleanupExpiredBuffs(client, GUILD_ID),
-                    { taskName: 'initial_buff_cleanup', timeout: 30000 }
-                );
-                if (initialResult.cleaned > 0) {
-                    console.log(`✅ Initial cleanup: ${initialResult.cleaned} expired buffs removed`);
-                }
-
-                setInterval(async () => {
-                    try {
-                        const result = await retryQueue.execute(
-                            () => dbManager.cleanupExpiredBuffs(client, GUILD_ID),
-                            { taskName: 'scheduled_buff_cleanup', timeout: 30000 }
-                        );
-                        if (result.cleaned > 0) {
-                            console.log(`🔄 Auto-cleaned ${result.cleaned} expired buffs`);
-                        }
-                    } catch (error) {
-                        console.error('❌ Error in buff cleanup job:', error.message);
-                    }
-                }, 30 * 60 * 1000);
-
-                console.log('✅ Buff cleanup job started (every 30 minutes)');
-            } catch (error) {
-                console.error('❌ Failed to start buff cleanup job:', error);
-            }
-
-            // 11. Daily XP Reset — بعد 5 ثواني
-            console.log('🔄 Setting up daily XP limits reset...');
-
-            setTimeout(async () => {
-                try {
-                    if (chatXPSystem && typeof chatXPSystem.resetDailyLimits === 'function') {
-                        await chatXPSystem.resetDailyLimits();
-                        console.log('✅ Daily XP limits reset successfully');
-                    }
-                    if (voiceXPSystem && typeof voiceXPSystem.resetDailyLimits === 'function') {
-                        await voiceXPSystem.resetDailyLimits();
-                        console.log('✅ Daily Voice XP limits reset successfully');
-                    }
-                } catch (error) {
-                    console.error('❌ Failed to reset daily XP limits:', error.message);
-                }
-            }, 5000);
-
-            // كل 24 ساعة
-            setInterval(async () => {
-                try {
-                    console.log('🔄 Running scheduled daily XP limits reset...');
-                    if (chatXPSystem && typeof chatXPSystem.resetDailyLimits === 'function') {
-                        await chatXPSystem.resetDailyLimits();
-                    }
-                    if (voiceXPSystem && typeof voiceXPSystem.resetDailyLimits === 'function') {
-                        await voiceXPSystem.resetDailyLimits();
-                    }
-                    console.log('✅ Daily XP limits reset completed');
-                } catch (error) {
-                    console.error('❌ Error in scheduled XP limits reset:', error.message);
-                }
-            }, 24 * 60 * 60 * 1000);
-
-            console.log('✅ Daily XP limits reset system started (every 24 hours)');
             console.log('🎉 All systems started successfully!');
 
         } catch (error) {

@@ -101,14 +101,12 @@ async function endExpiredGiveaways(client) {
 
                 // بناء الـ config من بيانات الجيفاواي
                 const config = {
-                    winnersCount: giveaway.winners_count,
-                    host: { id: giveaway.host_id },
-                    imageUrl: giveaway.image_url,
-                    entryType: giveaway.entry_type,
-                    entryValues: giveaway.entry_values ? JSON.parse(giveaway.entry_values) : null,
-                    multiplier: giveaway.multiplier ? JSON.parse(giveaway.multiplier) : null,
-                    reqRole: giveaway.reqrole ? { id: giveaway.reqrole } : null,
-                    banRole: giveaway.banrole ? { id: giveaway.banrole } : null
+                    ...giveawayCommand.buildConfigFromGiveaway(giveaway),
+                    host: {
+                        id: giveaway.host_id,
+                        username: giveaway.host_name || 'Host',
+                        displayAvatarURL: () => null
+                    }
                 };
 
                 if (result.noParticipants) {
@@ -195,16 +193,16 @@ async function restoreActiveOnes(client) {
                 const giveawayCommand = client.commands.get('giveaway');
                 if (!giveawayCommand) continue;
 
+                // ✅ جلب الـ host كـ user object حقيقي
+                const host = await client.users.fetch(giveaway.host_id).catch(() => ({
+                    id: giveaway.host_id,
+                    username: giveaway.host_name || 'Host',
+                    displayAvatarURL: () => null
+                }));
+
                 const config = {
-                    winnersCount: giveaway.winners_count,
-                    entryType: giveaway.entry_type,
-                    entryValues: giveaway.entry_values ? JSON.parse(giveaway.entry_values) : null,
-                    multiplier: giveaway.multiplier ? JSON.parse(giveaway.multiplier) : null,
-                    reqRole: giveaway.reqrole ? { id: giveaway.reqrole } : null,
-                    banRole: giveaway.banrole ? { id: giveaway.banrole } : null,
-                    host: { id: giveaway.host_id },
-                    imageUrl: giveaway.image_url,
-                    schedule: giveaway.schedule
+                    ...giveawayCommand.buildConfigFromGiveaway(giveaway),
+                    host
                 };
 
                 const entries = giveaway.entries || {};
@@ -214,7 +212,7 @@ async function restoreActiveOnes(client) {
                     config,
                     endsAt,
                     giveaway.giveaway_code,
-                    giveaway.host_id,
+                    host, // ✅ host object مش string
                     entries
                 );
 
@@ -246,6 +244,9 @@ async function restoreActiveOnes(client) {
 
             } catch (error) {
                 console.error(`❌ Error restoring giveaway ${giveaway.giveaway_code}:`, error.message);
+                if (error.errors) console.error('🔍 Details:', JSON.stringify(error.errors, null, 2));
+                if (error.rawError) console.error('🔍 Raw:', JSON.stringify(error.rawError, null, 2));
+                console.error('🔍 Stack:', error.stack);
             }
         }
 

@@ -40,25 +40,25 @@ function actRow(label, cur, max) {
     return `${label}\n> \`${bar(cur, max)}\` **${cur}/${max}**${pct(cur, max)}${done ? ' ✅' : ''}`;
 }
 
-function buttonRow() {
+function buttonRow(activeView = 'agent') {
     return new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('progress_agent')
             .setLabel('Agent File')
-            .setStyle(ButtonStyle.Primary),
+            .setStyle(activeView === 'agent' ? ButtonStyle.Primary : ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId('progress_routine')
             .setLabel('Routine Missions')
-            .setStyle(ButtonStyle.Secondary),
+            .setStyle(activeView === 'routine' ? ButtonStyle.Primary : ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId('progress_limited')
             .setLabel('Limited Missions')
-            .setStyle(ButtonStyle.Secondary)
+            .setStyle(activeView === 'limited' ? ButtonStyle.Primary : ButtonStyle.Secondary)
     );
 }
 
 // ===== View Builders =====
-function buildAgentFile(targetUser, record) {
+function buildAgentFile(targetUser, record, activeView = 'agent') {
     const guild       = gLabel(record.guild);
     const tokens      = record.total_sky_tokens ?? 0;
     const streak      = record.quest_streak ?? 0;
@@ -92,14 +92,14 @@ function buildAgentFile(targetUser, record) {
         .addSeparatorComponents(s => s.setDivider(true))
         .addTextDisplayComponents(t => t.setContent(
             `### 💬 Messages\n` +
-            `Today: **${dailyMsg}** msgs` +
+            `Today: **${dailyMsg}** msgs ` +
             `| Week: **${weeklyMsg}** msgs`
         ))
         .addSeparatorComponents(s => s.setDivider(true))
-        .addActionRowComponents(buttonRow());
+        .addActionRowComponents(buttonRow(activeView));
 }
 
-function buildRoutineMissions(record) {
+function buildRoutineMissions(record, activeView = 'routine') {
     const accent = record.guild === 'sky_vanguards' ? 0x5865F2 :
                    record.guild === 'aether_raiders' ? 0x9B59B6 : 0x2B2D31;
 
@@ -119,10 +119,10 @@ function buildRoutineMissions(record) {
     if (record.guild === 'aether_raiders')
         dailyRows.push(actRow('🏆 Steam Achievement', record.steam_achievement_claimed ?? 0, -1));
 
-    // Weekly activities (replaced Top 5 Weekly with Steam Achievements Weekly)
+    // Weekly activities
     const weeklyRows = [
         actRow('📨 500 Messages', record.msg_500_claimed ?? 0, 3),
-        actRow('🎮 20 Steam Achievements', record.steamachievements_weekly_claimed ?? 0, 1),   // <-- جديد
+        actRow('🎮 20 Steam Achievements', record.steamachievements_weekly_claimed ?? 0, 1),
     ];
 
     // Count completed for summary
@@ -139,10 +139,10 @@ function buildRoutineMissions(record) {
     const dailyCompleted = dailyDone.filter(Boolean).length;
     const dailyTotal     = dailyDone.length;
 
-    // Weekly completed count (now with new activity)
+    // Weekly completed count
     const weeklyCompleted = [
         (record.msg_500_claimed ?? 0) >= 3,
-        (record.steamachievements_weekly_claimed ?? 0) >= 1,   // <-- تعديل
+        (record.steamachievements_weekly_claimed ?? 0) >= 1,
     ].filter(Boolean).length;
 
     return new ContainerBuilder()
@@ -159,10 +159,10 @@ function buildRoutineMissions(record) {
             weeklyRows.join('\n')
         ))
         .addSeparatorComponents(s => s.setDivider(true))
-        .addActionRowComponents(buttonRow());
+        .addActionRowComponents(buttonRow(activeView));
 }
 
-function buildLimitedMissions(record) {
+function buildLimitedMissions(record, activeView = 'limited') {
     const accent = record.guild === 'sky_vanguards' ? 0x5865F2 :
                    record.guild === 'aether_raiders' ? 0x9B59B6 : 0x2B2D31;
 
@@ -217,7 +217,7 @@ function buildLimitedMissions(record) {
         .addSeparatorComponents(s => s.setDivider(true))
         .addTextDisplayComponents(t => t.setContent(group3Rows.join('\n')))
         .addSeparatorComponents(s => s.setDivider(true))
-        .addActionRowComponents(buttonRow());
+        .addActionRowComponents(buttonRow(activeView));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ module.exports = {
                     ...cv2
                 });
 
-            const initialContainer = buildAgentFile(targetUser, record);
+            const initialContainer = buildAgentFile(targetUser, record, 'agent');
             const message = await interaction.editReply({
                 components: [initialContainer],
                 ...cv2
@@ -268,13 +268,13 @@ module.exports = {
                 let newContainer;
                 switch (btnInteraction.customId) {
                     case 'progress_agent':
-                        newContainer = buildAgentFile(targetUser, record);
+                        newContainer = buildAgentFile(targetUser, record, 'agent');
                         break;
                     case 'progress_routine':
-                        newContainer = buildRoutineMissions(record);
+                        newContainer = buildRoutineMissions(record, 'routine');
                         break;
                     case 'progress_limited':
-                        newContainer = buildLimitedMissions(record);
+                        newContainer = buildLimitedMissions(record, 'limited');
                         break;
                     default:
                         return;
