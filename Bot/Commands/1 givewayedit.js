@@ -8,36 +8,34 @@ const {
 const dbManager = require('../Data/database');
 const parseDuration = require('../System/durationParser');
 
-// ========== CONSTANTS ==========
-const WINNER_ROLE_ID = '1385653747459293254';
-const DEFAULT_BLACKLIST_ROLES = ['1387054331152433312'];
+// ========== CONSTANTS (مطابقة مع giveaway.js) ==========
+const WINNER_ROLE_ID = '1377112815600406618';
+const DEFAULT_BLACKLIST_ROLES = ['1380141514293776466'];
 const DEFAULT_HOST_ID = '1363733513081454774';
 
-const TIER_3_ROLE_ID = '1491492192907170032';
-const GAMER_1_ID = '1394730565034315876';
-const GAMER_2_ID = '1394731328322408469';
-const BOOSTER_ROLE_ID = '1394667905257439374';
-const GAMER_3_ID = '1394731331648491550';
-const GAMER_4_ID = '1394725972250726552';
+const TIER_3_ROLE_ID = '1465705698989179030';
+const GAMER_1_ID = '1363754810645417994';
+const GAMER_2_ID = '1363754894888013846';
+const BOOSTER_ROLE_ID = '1374313963428253847';
+const GAMER_3_ID = '1363754940710916187';
+const GAMER_4_ID = '1363754996793085972';
 const GAMER_5_ID = '1491491999147229447';
-const TIER_5_ID = '1491492023017017546';
+const TIER_5_ID = '1465785463984886045';
 
-// ========== SKYWELL ROLE IDs ==========
-const SKYWELL_LVL1_ID = 'SKYWELL_LVL1_ROLE_ID';
-const SKYWELL_LVL2_ID = 'SKYWELL_LVL2_ROLE_ID';
-const SKYWELL_LVL3_ID = 'SKYWELL_LVL3_ROLE_ID';
-const SKYWELL_LVL4_ID = 'SKYWELL_LVL4_ROLE_ID';
+// ========== SKYWELL ROLE IDs (مطابقة مع giveaway.js) ==========
+const SKYWELL_LVL1_ID = '1465705164139794443';
+const SKYWELL_LVL2_ID = '1465705207760556186';
+const SKYWELL_LVL3_ID = '1465705232280453283';
+const SKYWELL_LVL4_ID = '1465705263209123975';
+const SKYWELL_LVL5_ID = '1465705294234652736';
 
 const VIP_ROLES_HIERARCHY = [GAMER_1_ID, GAMER_2_ID, GAMER_3_ID, GAMER_4_ID];
+const SKYWELL_ROLE_IDS = [SKYWELL_LVL1_ID, SKYWELL_LVL2_ID, SKYWELL_LVL3_ID, SKYWELL_LVL4_ID, SKYWELL_LVL5_ID];
+
 const LRM = '\u200E';
 
 // ========== HELPERS ==========
 
-/**
- * تحويل نص يحتوي على منشنات رول مثل "<@&123>, <@&456>" إلى مصفوفة IDs
- * يدعم أيضًا الـ mode في الآخر: "@Role1, @Role2 y" أو "@Role1, @Role2 n"
- * يرجع { ids: string[], mode: 'y'|'n' }
- */
 function parseRoleIdsFromString(input) {
     if (!input) return { ids: [], mode: 'n' };
 
@@ -54,15 +52,6 @@ function parseRoleIdsFromString(input) {
     const ids = matches.map(m => m.replace(/[<@&>]/g, ''));
 
     return { ids, mode };
-}
-
-function getBlacklistRoleIds(banRoleIdsInput = null, banRoleIdSingle = null) {
-    // إذا كان هناك إدخال من مصفوفة (من التعديل) أو من الخيار القديم
-    if (banRoleIdsInput && Array.isArray(banRoleIdsInput) && banRoleIdsInput.length) {
-        return banRoleIdsInput;
-    }
-    if (banRoleIdSingle) return [banRoleIdSingle];
-    return DEFAULT_BLACKLIST_ROLES.filter(Boolean);
 }
 
 function parseColor(colorInput) {
@@ -136,10 +125,10 @@ function parseMultiplierInput(input) {
 function getPeriodLabel(period) {
     const map = {
         daily: 'Daily',
-        weekly: 'Week',
-        monthly: 'Month'
+        weekly: 'Weekly',
+        monthly: 'Monthly'
     };
-    return map[period] || 'Week';
+    return map[period] || 'Weekly';
 }
 
 function buildExtraEntriesLines(multiplier) {
@@ -190,6 +179,7 @@ function getPrizeDisplayName(type) {
     if (!type) return 'Prize';
     if (type.startsWith('CUSTOM_')) return 'Custom Prize';
     if (type.startsWith('role_')) return 'Role Entry';
+    if (type === 'SKYWELL_JOIN') return 'SkyWell';
     const PRIZE_NAMES = {
         RN: 'Random Key',
         GCS: 'Gift Card S',
@@ -278,6 +268,7 @@ function processEntryValues(entryValues) {
     };
 }
 
+// ===== getTemplateData مطابقة تماماً مع giveaway.js =====
 function getTemplateData(templateName) {
     const templates = {
         normal: {
@@ -285,30 +276,27 @@ function getTemplateData(templateName) {
             color: 0x0073ff,
             winnersCount: 3,
             entryValues: {
-                period: 'weekly',
+                period: 'daily',
                 buttons: [
-                    { type: 'RN', label: 'Random Key', min: 15, max: 20 },
-                    { type: 'GCS', label: 'Gift Card S', min: 25, max: 30 },
-                    { type: 'GCD', label: 'Gift Card D', min: 35, max: 50 }
+                    { type: 'RN', label: 'Random Key', min: 10, max: 15 },
+                    { type: 'GCS', label: 'Gift Card S', min: 20, max: 25 },
+                    { type: 'GCD', label: 'Gift Card D', min: 30, max: 35 }
                 ]
             },
             multiplier: { [TIER_3_ROLE_ID]: 2 },
             imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
         },
+        // ===== VIP: زرار واحد (SINGLE) =====
         vip: {
-            title: 'VIP Elite Giveaway',
+            title: 'VIP 5$ Gift Card Giveaway',
             color: 0xFFD700,
             winnersCount: 2,
             entryValues: {
-                period: 'weekly',
+                period: 'daily',
                 min: 15,
-                max: 30,
+                max: 25,
                 buttons: [
-                    { roleId: GAMER_1_ID, label: 'Gamer 1' },
-                    { roleId: GAMER_2_ID, label: 'Gamer 2' },
-                    { roleId: BOOSTER_ROLE_ID, label: 'Booster' },
-                    { roleId: GAMER_3_ID, label: 'Gamer 3' },
-                    { roleId: GAMER_4_ID, label: 'Gamer 4' }
+                    { type: 'SINGLE', label: 'Join' }
                 ]
             },
             multiplier: {
@@ -321,41 +309,40 @@ function getTemplateData(templateName) {
             imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
         },
         elite: {
-            title: 'Elite Royale Giveaway',
+            title: 'Sky Royale Giveaway',
             color: 0x9B59B6,
             winnersCount: 1,
             entryValues: {
                 period: 'weekly',
                 min: 25,
-                max: 75,
+                max: 50,
                 buttons: [
-                    { roleId: GAMER_5_ID, label: 'Gamer 5' },
-                    { roleId: TIER_5_ID, label: 'Tier 5' }
+                    { type: 'ELITE_GIFT_CARD', label: 'Gift Card', requiredRole: null },
+                    { type: 'ELITE_CHOSEN_KEY', label: 'Chosen Key', requiredRole: null }
                 ]
             },
             multiplier: { [GAMER_5_ID]: 5, [TIER_5_ID]: 10 },
             imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
         },
+        // ===== SKYWELL: زرار واحد =====
         skywell: {
-            title: 'SkyWell Special',
+            title: 'SkyWell Exclusive Giveaways',
             color: 0x00BFFF,
             winnersCount: 1,
             entryValues: {
                 period: 'weekly',
                 buttons: [
-                    { roleId: SKYWELL_LVL1_ID, label: 'Skywell Lvl 1', required: 0 },
-                    { roleId: SKYWELL_LVL2_ID, label: 'Skywell Lvl 2', required: 0 },
-                    { roleId: SKYWELL_LVL3_ID, label: 'Skywell Lvl 3', required: 0 },
-                    { roleId: SKYWELL_LVL4_ID, label: 'Skywell Lvl 4', required: 0 }
+                    { type: 'SKYWELL_JOIN', label: 'Join', required: 0 }
                 ]
             },
             multiplier: {
                 [SKYWELL_LVL1_ID]: 2,
                 [SKYWELL_LVL2_ID]: 4,
                 [SKYWELL_LVL3_ID]: 6,
-                [SKYWELL_LVL4_ID]: 8
+                [SKYWELL_LVL4_ID]: 8,
+                [SKYWELL_LVL5_ID]: 10
             },
-            imageUrl: null
+            imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
         }
     };
 
@@ -368,13 +355,12 @@ function buildConfigFromGiveaway(giveaway) {
 
     let fallbackTitle = '🎁 Giveaway';
     if (giveaway.template === 'normal') fallbackTitle = 'Discord Special Drop';
-    else if (giveaway.template === 'vip') fallbackTitle = 'VIP Elite Giveaway';
-    else if (giveaway.template === 'elite') fallbackTitle = 'Elite Royale Giveaway';
-    else if (giveaway.template === 'skywell') fallbackTitle = 'SkyWell Special';
+    else if (giveaway.template === 'vip') fallbackTitle = 'VIP 5$ Gift Card Giveaway';
+    else if (giveaway.template === 'elite') fallbackTitle = 'Sky Royale Giveaway';
+    else if (giveaway.template === 'skywell') fallbackTitle = 'SkyWell Exclusive Giveaways';
 
     const title = giveaway.title || fallbackTitle;
 
-    // قراءة المصفوفات والمود من قاعدة البيانات
     let reqRoleIds = giveaway.reqrole || [];
     if (typeof reqRoleIds === 'string') reqRoleIds = reqRoleIds ? [reqRoleIds] : [];
     const reqRoleMode = giveaway.req_role_mode || 'n';
@@ -495,7 +481,7 @@ function buildButtonRow(config, giveawayCode, entries, disabled = false) {
     return rows;
 }
 
-// ========== MODULE ==========
+// ========== MAIN MODULE ==========
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -504,9 +490,9 @@ module.exports = {
         .addStringOption(opt => opt.setName('code').setDescription('Giveaway code to edit').setRequired(true))
         .addStringOption(opt => opt.setName('template').setDescription('New template').setRequired(false).addChoices(
             { name: 'Discord Special Drop', value: 'normal' },
-            { name: 'VIP Elite Giveaway', value: 'vip' },
-            { name: 'Elite Royale Giveaway', value: 'elite' },
-            { name: 'SkyWell Special', value: 'skywell' }
+            { name: 'VIP 5$ Gift Card Giveaway', value: 'vip' },
+            { name: 'Sky Royale Giveaway', value: 'elite' },
+            { name: 'SkyWell Exclusive Giveaways', value: 'skywell' }
         ))
         .addStringOption(opt => opt.setName('title').setDescription('New title').setRequired(false))
         .addStringOption(opt => opt.setName('description').setDescription('New description').setRequired(false))
@@ -515,7 +501,6 @@ module.exports = {
         .addUserOption(opt => opt.setName('host').setDescription('New host').setRequired(false))
         .addStringOption(opt => opt.setName('image').setDescription('New image URL').setRequired(false))
         .addStringOption(opt => opt.setName('scheduled').setDescription('New delay before start (scheduled giveaways only)').setRequired(false))
-        // ===== الخيارات الجديدة لدعم المصفوفات والمود =====
         .addStringOption(opt => opt
             .setName('bypass_role')
             .setDescription('Bypass roles (e.g. @R1, @R2 y = ALL bypass, without y = ANY)')
@@ -528,7 +513,6 @@ module.exports = {
             .setName('blacklist')
             .setDescription('Banned roles (e.g. @R1, @R2 replaces default blacklist)')
             .setRequired(false))
-        // ========================================================
         .addStringOption(opt => opt.setName('prizes').setDescription('New prizes separated by commas').setRequired(false))
         .addStringOption(opt => opt.setName('messages_duration').setDescription('New period (daily/weekly/monthly)').setRequired(false).addChoices(
             { name: 'Daily', value: 'daily' },
@@ -543,7 +527,7 @@ module.exports = {
         try {
             await interaction.deferReply({ ephemeral: true });
 
-            // ========== Permission Check ==========
+            // Permission Check
             const moderateRoleData = await dbManager.getBotSetting('moderateRole');
             if (!moderateRoleData) {
                 return interaction.editReply('❌ Set `/setrole` first.');
@@ -556,7 +540,7 @@ module.exports = {
                 return interaction.editReply(`⛔ Only <@&${roleInfo.id}> can use this`);
             }
 
-            // ========== Fetch Giveaway ==========
+            // Fetch Giveaway
             const code = interaction.options.getString('code');
             const giveaway = await dbManager.getGiveawayByCode(code);
 
@@ -568,7 +552,7 @@ module.exports = {
                 return interaction.editReply(`❌ Giveaway \`${code}\` is \`${giveaway.status}\`, only active or scheduled giveaways can be edited`);
             }
 
-            // ========== Read Options ==========
+            // Read Options
             const newTemplate = interaction.options.getString('template');
             const newTitle = interaction.options.getString('title');
             const newDescription = interaction.options.getString('description');
@@ -578,7 +562,6 @@ module.exports = {
             const newImage = interaction.options.getString('image');
             const newScheduled = interaction.options.getString('scheduled');
 
-            // الخيارات الجديدة
             const bypassRolesInput = interaction.options.getString('bypass_role');
             const reqRolesInput = interaction.options.getString('required_role');
             const banRolesInput = interaction.options.getString('blacklist');
@@ -589,13 +572,13 @@ module.exports = {
             const newColor = interaction.options.getString('color');
             const newMultipleChance = interaction.options.getString('multiple_chance');
 
-            // ========== Parse Roles with Mode ==========
+            // Parse Roles with Mode
             const { ids: bypassRoleIds, mode: bypassRoleMode } = parseRoleIdsFromString(bypassRolesInput);
             const { ids: reqRoleIds, mode: reqRoleMode } = parseRoleIdsFromString(reqRolesInput);
             const { ids: customBanRoleIds } = parseRoleIdsFromString(banRolesInput);
             const banRoleIds = customBanRoleIds.length > 0 ? customBanRoleIds : DEFAULT_BLACKLIST_ROLES;
 
-            // ========== Validate Template ==========
+            // Validate Template
             const templateData = newTemplate ? getTemplateData(newTemplate) : null;
             if (newTemplate && !templateData) {
                 return interaction.editReply(`❌ Template "${newTemplate}" not found`);
@@ -605,7 +588,7 @@ module.exports = {
             const currentEntryValues = parseJsonField(giveaway.entry_values);
             const currentMultiplier = parseJsonField(giveaway.multiplier);
 
-            // ========== Build Working Values ==========
+            // Build Working Values
             const updates = {};
             const oldValues = {};
 
@@ -619,7 +602,6 @@ module.exports = {
                 ? { id: newHost.id, username: newHost.username }
                 : { id: giveaway.host_id, username: giveaway.host_name || 'Host' };
 
-            // المصفوفات والمود
             let workingReqRoleIds = reqRoleIds.length ? reqRoleIds : currentConfig.reqRoleIds;
             let workingReqRoleMode = reqRoleMode || currentConfig.reqRoleMode;
             let workingBypassRoleIds = bypassRoleIds.length ? bypassRoleIds : currentConfig.bypassRoleIds;
@@ -629,7 +611,7 @@ module.exports = {
             let workingMultiplier = currentMultiplier;
             let workingEntryValues = currentEntryValues;
 
-            // ========== Template Switch ==========
+            // Template Switch
             if (templateData) {
                 oldValues.template = giveaway.template || 'custom';
                 updates.template = newTemplate;
@@ -648,33 +630,32 @@ module.exports = {
                 }
             }
 
-            // ========== Title ==========
+            // Title
             if (newTitle || (templateData && workingTitle !== giveaway.title)) {
-                if (!newTitle) oldValues.title = giveaway.title || 'Not set';
-                else oldValues.title = giveaway.title || 'Not set';
+                oldValues.title = giveaway.title || 'Not set';
                 updates.title = workingTitle;
             }
 
-            // ========== Winners ==========
+            // Winners
             if (newWinners || (templateData && workingWinners !== giveaway.winners_count)) {
                 oldValues.winners_count = giveaway.winners_count;
                 updates.winners_count = workingWinners;
             }
 
-            // ========== Host ==========
+            // Host
             if (newHost) {
                 oldValues.host_id = `<@${giveaway.host_id}>`;
                 updates.host_id = newHost.id;
                 updates.host_name = newHost.username;
             }
 
-            // ========== Color ==========
+            // Color
             if (newColor || (templateData && workingColor !== giveaway.color)) {
                 oldValues.color = numberToHex(giveaway.color);
                 updates.color = workingColor;
             }
 
-            // ========== Image ==========
+            // Image
             if (newImage !== null && newImage !== undefined) {
                 oldValues.image_url = giveaway.image_url || 'No image';
                 updates.image_url = newImage;
@@ -683,13 +664,13 @@ module.exports = {
                 updates.image_url = workingImage;
             }
 
-            // ========== Roles (Arrays with Mode) ==========
+            // Roles (Arrays with Mode)
             if (bypassRolesInput) {
                 const oldBypass = currentConfig.bypassRoleIds.length ? currentConfig.bypassRoleIds.map(id => `<@&${id}>`).join(', ') : 'Not set';
                 oldValues.bypass_role_id = oldBypass;
                 updates.bypass_role_id = JSON.stringify(workingBypassRoleIds);
                 updates.bypass_role_mode = workingBypassRoleMode;
-            } else if (templateData && workingBypassRoleIds.length !== currentConfig.bypassRoleIds.length) {
+            } else if (templateData && JSON.stringify(workingBypassRoleIds) !== JSON.stringify(currentConfig.bypassRoleIds)) {
                 oldValues.bypass_role_id = currentConfig.bypassRoleIds.length ? currentConfig.bypassRoleIds.map(id => `<@&${id}>`).join(', ') : 'Not set';
                 updates.bypass_role_id = JSON.stringify(workingBypassRoleIds);
                 updates.bypass_role_mode = workingBypassRoleMode;
@@ -700,7 +681,7 @@ module.exports = {
                 oldValues.reqrole = oldReq;
                 updates.reqrole = JSON.stringify(workingReqRoleIds);
                 updates.req_role_mode = workingReqRoleMode;
-            } else if (templateData && workingReqRoleIds.length !== currentConfig.reqRoleIds.length) {
+            } else if (templateData && JSON.stringify(workingReqRoleIds) !== JSON.stringify(currentConfig.reqRoleIds)) {
                 oldValues.reqrole = currentConfig.reqRoleIds.length ? currentConfig.reqRoleIds.map(id => `<@&${id}>`).join(', ') : 'Not set';
                 updates.reqrole = JSON.stringify(workingReqRoleIds);
                 updates.req_role_mode = workingReqRoleMode;
@@ -712,7 +693,7 @@ module.exports = {
                 updates.banrole = JSON.stringify(workingBanRoleIds);
             }
 
-            // ========== Multiplier ==========
+            // Multiplier
             if (newMultipleChance) {
                 const parsedMultiplier = parseMultiplierInput(newMultipleChance);
                 if (!parsedMultiplier) {
@@ -726,7 +707,7 @@ module.exports = {
                 updates.multiplier = JSON.stringify(workingMultiplier);
             }
 
-            // ========== Prizes / Entry Values ==========
+            // Prizes / Entry Values
             if (newPrizes) {
                 const prizesList = newPrizes.split(',').map(p => p.trim()).filter(Boolean);
                 if (!prizesList.length) {
@@ -762,7 +743,7 @@ module.exports = {
 
                 if (!newWinners) {
                     workingWinners = prizesList.length;
-                    if (!oldValues.winners_count) oldValues.winners_count = giveaway.winners_count;
+                    oldValues.winners_count = giveaway.winners_count;
                     updates.winners_count = prizesList.length;
                 }
             } else {
@@ -789,13 +770,13 @@ module.exports = {
                     updates.entry_values = JSON.stringify(workingEntryValues);
                 }
 
-                if (templateData && !newMessagesAmount && !newMessagesDuration) {
+                if (templateData && !newMessagesAmount && !newMessagesDuration && !newPrizes) {
                     oldValues.entry_values = 'Previous entry values';
                     updates.entry_values = JSON.stringify(workingEntryValues);
                 }
             }
 
-            // ========== Duration ==========
+            // Duration
             let newEndTime = null;
             let newScheduleTime = null;
 
@@ -816,7 +797,7 @@ module.exports = {
                 updates.end_time = newEndTime.toISOString();
             }
 
-            // ========== Schedule ==========
+            // Schedule
             if (newScheduled) {
                 if (giveaway.status !== 'scheduled') {
                     return interaction.editReply('❌ `scheduled` can only be changed for scheduled giveaways');
@@ -838,7 +819,7 @@ module.exports = {
                 }
             }
 
-            // ========== Rebuild Description ==========
+            // Rebuild Description
             const descriptionChanged =
                 newDescription !== null && newDescription !== undefined ||
                 newTitle ||
@@ -893,12 +874,12 @@ module.exports = {
                 updates.description = rebuiltDescription;
             }
 
-            // ========== No Changes Guard ==========
+            // No Changes Guard
             if (Object.keys(updates).length === 0) {
                 return interaction.editReply('❌ No changes specified');
             }
 
-            // ========== Build & Run Query ==========
+            // Build & Run Query
             const setClauses = [];
             const values = [];
             let paramIndex = 1;
@@ -913,7 +894,7 @@ module.exports = {
             const query = `UPDATE giveaways SET ${setClauses.join(', ')}, updated_at = NOW() WHERE giveaway_code = $${paramIndex}`;
             await dbManager.run(query, values);
 
-            // ========== Update Live Message ==========
+            // Update Live Message
             const updatedGiveaway = await dbManager.getGiveawayByCode(code);
             let messageUpdated = false;
 
@@ -947,7 +928,7 @@ module.exports = {
                 }
             }
 
-            // ========== Build Success Embed ==========
+            // Build Success Embed
             const successEmbed = new EmbedBuilder()
                 .setColor(0x57f287)
                 .setTitle('✅ Giveaway Updated Successfully!')

@@ -35,6 +35,12 @@ const SKYWELL_LVL5_ID = '1465705294234652736';
 
 const VIP_ROLES_HIERARCHY = [GAMER_1_ID, GAMER_2_ID, GAMER_3_ID, GAMER_4_ID];
 
+// جميع رولات الـ VIP gamers في array
+const VIP_GAMER_ROLE_IDS = [GAMER_1_ID, GAMER_2_ID, GAMER_3_ID, GAMER_4_ID];
+
+// جميع رولات الـ Skywell في array مرتبة من الأقل للأعلى
+const SKYWELL_ROLE_IDS = [SKYWELL_LVL1_ID, SKYWELL_LVL2_ID, SKYWELL_LVL3_ID, SKYWELL_LVL4_ID, SKYWELL_LVL5_ID];
+
 /**
  * DEFAULT_BLACKLIST_ROLES:
  * يتم تطبيقها دايمًا إلا لو المستخدم دخل blacklist مخصصة → تحل محلها
@@ -182,6 +188,9 @@ function getPrizeDisplayName(type) {
     if (!type) return 'Prize';
     if (type.startsWith('CUSTOM_')) return 'Custom Prize';
     if (type.startsWith('role_')) return 'Role Entry';
+    if (type === 'VIP_GAMERS') return 'Gamers';
+    if (type === 'VIP_BOOSTERS') return 'Boosters';
+    if (type === 'SKYWELL_JOIN') return 'SkyWell';
     return PRIZE_NAMES[type] || type;
 }
 
@@ -288,7 +297,7 @@ function buildDescriptionFromEntryValues(
     lines.push(`Blacklisted: ${blacklistText}`);
 
     if (reqRoleIds.length) {
-        const reqModeLabel = (reqRoleIds.length > 1) 
+        const reqModeLabel = (reqRoleIds.length > 1)
             ? (reqRoleMode === 'y' ? ' `all`' : ' `any`')
             : '';
         lines.push('', `Required${reqModeLabel}: ${reqRoleIds.map(id => `<@&${id}>`).join(', ')}`);
@@ -491,9 +500,9 @@ module.exports = {
         .setDescription('Create a giveaway (Admins only)')
         .addStringOption(opt => opt.setName('template').setDescription('Template').setRequired(false).addChoices(
             { name: 'Discord Special Drop', value: 'normal' },
-            { name: 'VIP Elite Giveaway', value: 'vip' },
-            { name: 'Elite Royale Giveaway', value: 'elite' },
-            { name: 'SkyWell Special', value: 'skywell' }
+            { name: 'VIP 5$ Gift Card Giveaway', value: 'vip' },
+            { name: 'Sky Royale Giveaway', value: 'elite' },
+            { name: 'SkyWell Exclusive Giveaways', value: 'skywell' }
         ))
         .addStringOption(opt => opt.setName('title').setDescription('Title').setRequired(false))
         .addStringOption(opt => opt.setName('description').setDescription('Description').setRequired(false))
@@ -503,7 +512,6 @@ module.exports = {
         .addStringOption(opt => opt.setName('image').setDescription('Image URL (optional)').setRequired(false))
         .addStringOption(opt => opt.setName('scheduled').setDescription('Scheduled the giveaway (e.g., 7d 10h)').setRequired(false))
         .addChannelOption(opt => opt.setName('schedule_channel').setDescription('Channel for scheduled').setRequired(false))
-        // ===== الـ parameters الجديدة بتدعم mode في الآخر =====
         .addStringOption(opt => opt
             .setName('bypass_role')
             .setDescription('Bypass roles (e.g. @R1, @R2 y = ALL bypass, without y = ANY)')
@@ -516,7 +524,6 @@ module.exports = {
             .setName('blacklist')
             .setDescription('Banned roles (e.g. @R1, @R2 replaces default blacklist)')
             .setRequired(false))
-        // ========================================================
         .addStringOption(opt => opt.setName('multiple_chance').setDescription('Role weights like @role:2,@role:4').setRequired(false))
         .addStringOption(opt => opt.setName('prizes').setDescription('Custom prizes (e.g. Prize1, Prize2, Prize3)').setRequired(false))
         .addStringOption(opt => opt.setName('messages_duration').setDescription('Period (daily/weekly/monthly)').setRequired(false).addChoices(
@@ -602,6 +609,10 @@ module.exports = {
             const btn = config.entryValues.buttons.find(b => `role_${b.roleId}` === entryType);
             if (btn?.label) return btn.label;
         }
+
+        if (entryType === 'VIP_GAMERS') return 'Gamers';
+        if (entryType === 'VIP_BOOSTERS') return 'Boosters';
+        if (entryType === 'SKYWELL_JOIN') return 'SkyWell';
 
         return getPrizeDisplayName(entryType);
     },
@@ -722,7 +733,6 @@ module.exports = {
             const colorInput = interaction.options.getString('color');
             const multipleChanceInput = interaction.options.getString('multiple_chance');
 
-            // ===== استخراج الرولات مع الـ mode =====
             const bypassRolesInput = interaction.options.getString('bypass_role');
             const reqRolesInput = interaction.options.getString('required_role');
             const banRolesInput = interaction.options.getString('blacklist');
@@ -730,10 +740,8 @@ module.exports = {
             const { ids: bypassRoleIds, mode: bypassRoleMode } = parseRoleIdsFromString(bypassRolesInput);
             const { ids: reqRoleIds, mode: reqRoleMode } = parseRoleIdsFromString(reqRolesInput);
 
-            // الـ blacklist: لو المستخدم دخل حاجة → تحل محل الـ DEFAULT، لو ما دخلش → استخدم DEFAULT
             const { ids: customBanRoleIds } = parseRoleIdsFromString(banRolesInput);
             const banRoleIds = customBanRoleIds.length > 0 ? customBanRoleIds : DEFAULT_BLACKLIST_ROLES;
-            // ==========================================
 
             const templateData = this.getTemplateData(template);
             if (!templateData) return interaction.editReply(`❌ Template "${template}" not found`);
@@ -847,16 +855,15 @@ module.exports = {
 
         let fallbackTitle = '🎁 Giveaway';
         if (giveaway.template === 'normal') fallbackTitle = 'Discord Special Drop';
-        else if (giveaway.template === 'vip') fallbackTitle = 'VIP Elite Giveaway';
-        else if (giveaway.template === 'elite') fallbackTitle = 'Elite Royale Giveaway';
-        else if (giveaway.template === 'skywell') fallbackTitle = 'SkyWell Special';
+        else if (giveaway.template === 'vip') fallbackTitle = 'VIP 5$ Gift Card Giveaway';
+        else if (giveaway.template === 'elite') fallbackTitle = 'Sky Royale Giveaway';
+        else if (giveaway.template === 'skywell') fallbackTitle = 'SkyWell Exclusive Giveaways';
 
         const title = giveaway.title || fallbackTitle;
         const reqRoleIds = giveaway.reqrole || [];
         const reqRoleMode = giveaway.req_role_mode || 'n';
         const bypassRoleIds = giveaway.bypass_role_id || [];
         const bypassRoleMode = giveaway.bypass_role_mode || 'n';
-        // الـ banrole من قاعدة البيانات، لو فاضي استخدم DEFAULT
         const rawBanRoles = giveaway.banrole || [];
         const banRoleIds = rawBanRoles.length > 0 ? rawBanRoles : DEFAULT_BLACKLIST_ROLES;
 
@@ -902,8 +909,9 @@ module.exports = {
                 multiplier: { [TIER_3_ROLE_ID]: 2 },
                 imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
             },
+            // ===== VIP: زرار واحد (SINGLE) =====
             vip: {
-                title: 'VIP Elite Giveaway',
+                title: 'VIP 5$ Gift Card Giveaway',
                 color: 0xFFD700,
                 winnersCount: 2,
                 entryValues: {
@@ -911,11 +919,7 @@ module.exports = {
                     min: 15,
                     max: 25,
                     buttons: [
-                        { roleId: GAMER_1_ID, label: 'Gamer 1' },
-                        { roleId: GAMER_2_ID, label: 'Gamer 2' },
-                        { roleId: BOOSTER_ROLE_ID, label: 'Booster' },
-                        { roleId: GAMER_3_ID, label: 'Gamer 3' },
-                        { roleId: GAMER_4_ID, label: 'Gamer 4' }
+                        { type: 'SINGLE', label: 'Join' }
                     ]
                 },
                 multiplier: {
@@ -928,7 +932,7 @@ module.exports = {
                 imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
             },
             elite: {
-                title: 'Elite Royale Giveaway',
+                title: 'Sky Royale Giveaway',
                 color: 0x9B59B6,
                 winnersCount: 1,
                 entryValues: {
@@ -936,25 +940,22 @@ module.exports = {
                     min: 25,
                     max: 50,
                     buttons: [
-                        { roleId: GAMER_5_ID, label: 'Gamer 5' },
-                        { roleId: TIER_5_ID, label: 'Tier 5' }
+                        { type: 'ELITE_GIFT_CARD', label: 'Gift Card', requiredRole: null },
+                        { type: 'ELITE_CHOSEN_KEY', label: 'Chosen Key', requiredRole: null }
                     ]
                 },
                 multiplier: { [GAMER_5_ID]: 5, [TIER_5_ID]: 10 },
                 imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
             },
+            // ===== SKYWELL: زرار واحد بدل 5 =====
             skywell: {
-                title: 'SkyWell Special',
+                title: 'SkyWell Exclusive Giveaways',
                 color: 0x00BFFF,
                 winnersCount: 1,
                 entryValues: {
                     period: 'weekly',
                     buttons: [
-                        { roleId: SKYWELL_LVL1_ID, label: 'Skywell Lvl 1', required: 0 },
-                        { roleId: SKYWELL_LVL2_ID, label: 'Skywell Lvl 2', required: 0 },
-                        { roleId: SKYWELL_LVL3_ID, label: 'Skywell Lvl 3', required: 0 },
-                        { roleId: SKYWELL_LVL4_ID, label: 'Skywell Lvl 4', required: 0 },
-                        { roleId: SKYWELL_LVL5_ID, label: 'Skywell Lvl 5', required: 0 }
+                        { type: 'SKYWELL_JOIN', label: 'Join', required: 0 }
                     ]
                 },
                 multiplier: {
@@ -964,7 +965,7 @@ module.exports = {
                     [SKYWELL_LVL4_ID]: 8,
                     [SKYWELL_LVL5_ID]: 10
                 },
-                imageUrl: null
+                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
             }
         };
 
@@ -1204,6 +1205,10 @@ module.exports = {
 
         if (type === 'SINGLE' && config.entryValues?.buttons?.[0]?.label === 'Join') return 'the giveaway';
         if (type === 'SINGLE' && config.entryValues?.buttons?.[0]?.label) return config.entryValues.buttons[0].label;
+
+        if (type === 'VIP_GAMERS') return 'Gamers';
+        if (type === 'VIP_BOOSTERS') return 'Boosters';
+        if (type === 'SKYWELL_JOIN') return 'SkyWell';
 
         return getPrizeDisplayName(type);
     },
@@ -1618,6 +1623,8 @@ module.exports = {
                 entryType = suffixStr;
             } else if (suffixStr.startsWith('CUSTOM_')) {
                 entryType = suffixStr;
+            } else if (suffixStr === 'VIP_GAMERS' || suffixStr === 'VIP_BOOSTERS' || suffixStr === 'SKYWELL_JOIN') {
+                entryType = suffixStr;
             } else if (suffixStr.startsWith('role_')) {
                 roleIdForEntry = suffixStr.slice(5);
                 entryType = `role_${roleIdForEntry}`;
@@ -1654,50 +1661,46 @@ module.exports = {
                     }
                 }
 
-                if (buttonConfig.roleId && giveaway.template === 'vip') {
-                    if (buttonConfig.roleId === BOOSTER_ROLE_ID) {
-                        if (VIP_ROLES_HIERARCHY.some(rid => member.roles.cache.has(rid))) {
-                            return this.safeReply(interaction, {
-                                embeds: [new EmbedBuilder().setColor('#FF0000').setDescription('❌ Cannot use Booster entry if you have a Gamer role')],
-                                flags: 64
-                            });
-                        }
-                    } else {
-                        const idx = VIP_ROLES_HIERARCHY.indexOf(buttonConfig.roleId);
-                        if (idx !== -1) {
-                            for (let i = idx + 1; i < VIP_ROLES_HIERARCHY.length; i++) {
-                                if (member.roles.cache.has(VIP_ROLES_HIERARCHY[i])) {
-                                    return this.safeReply(interaction, {
-                                        embeds: [new EmbedBuilder().setColor('#FF0000').setDescription(`❌ You have a higher role (<@&${VIP_ROLES_HIERARCHY[i]}>), please use that button instead`)],
-                                        flags: 64
-                                    });
-                                }
-                            }
-                        }
-
-                        if (!member.roles.cache.has(buttonConfig.roleId)) {
-                            return this.safeReply(interaction, {
-                                embeds: [new EmbedBuilder().setColor('#FF0000').setDescription(`❌ You need <@&${buttonConfig.roleId}> to use this entry`)],
-                                flags: 64
-                            });
-                        }
+                // ===== SKYWELL_JOIN: فحص إن المستخدم عنده أي Skywell role =====
+                if (entryType === 'SKYWELL_JOIN') {
+                    const hasSkywell = SKYWELL_ROLE_IDS.some(rid => member.roles.cache.has(rid));
+                    if (!hasSkywell) {
+                        return this.safeReply(interaction, {
+                            embeds: [new EmbedBuilder().setColor('#FF0000').setDescription('❌ You need a SkyWell role to join this giveaway')],
+                            flags: 64
+                        });
                     }
-                } else if (buttonConfig.roleId && !member.roles.cache.has(buttonConfig.roleId)) {
-                    return this.safeReply(interaction, {
-                        embeds: [new EmbedBuilder().setColor('#FF0000').setDescription(`❌ You need <@&${buttonConfig.roleId}>`)],
-                        flags: 64
-                    });
                 }
 
-                // ====== النظام الجديد بشرط 50% ======
+                // ===== ELITE: لازم عنده Gamer 5 أو Tier 5 =====
+                if (entryType === 'ELITE_GIFT_CARD' || entryType === 'ELITE_CHOSEN_KEY') {
+                    const hasRequiredRole = member.roles.cache.has(GAMER_5_ID) || member.roles.cache.has(TIER_5_ID);
+                    if (!hasRequiredRole) {
+                        return this.safeReply(interaction, {
+                            embeds: [new EmbedBuilder().setColor('#FF0000').setDescription(`❌ You need <@&${GAMER_5_ID}> or <@&${TIER_5_ID}> to join`)],
+                            flags: 64
+                        });
+                    }
+                }
+
+                // ===== الـ role-based buttons العادية =====
+                if (buttonConfig.roleId && entryType !== 'SKYWELL_JOIN') {
+                    if (!member.roles.cache.has(buttonConfig.roleId)) {
+                        return this.safeReply(interaction, {
+                            embeds: [new EmbedBuilder().setColor('#FF0000').setDescription(`❌ You need <@&${buttonConfig.roleId}>`)],
+                            flags: 64
+                        });
+                    }
+                }
+
+                // ===== فحص الـ required messages =====
                 if (buttonConfig.required > 0) {
                     const period = config.entryValues?.period || 'weekly';
                     const userMsgs = await getUserMessageCount(interaction.user.id, period);
                     const required = buttonConfig.required;
-                    const threshold = Math.floor(required * 0.5); // 50% threshold
+                    const threshold = Math.floor(required * 0.5);
 
                     if (userMsgs < required) {
-                        // Check if user reached at least 50% to be allowed to purchase
                         if (userMsgs >= threshold) {
                             const needed = required - userMsgs;
                             const cost = needed * 45;
@@ -1717,14 +1720,10 @@ module.exports = {
                                 flags: 64
                             });
                         } else {
-                            // User hasn't reached 50% - cannot purchase
-                            const remainingToThreshold = threshold - userMsgs;
-
                             return this.safeReply(interaction, {
                                 embeds: [new EmbedBuilder().setColor('#FF0000').setDescription(
                                     `❌ You need **${required}** messages (${period})` +
                                     `, You have **${userMsgs}**\n`
-                                    //`⚠️ Need ${threshold} msgs (50%) to unlock, still need ${remainingToThreshold}`
                                 )],
                                 flags: 64
                             });
@@ -1742,18 +1741,35 @@ module.exports = {
                 });
             }
 
+            // ===== حساب الـ weight (الأفضلية للجيمر) =====
             let entryWeight = 1;
 
             if (config.multiplier) {
-                for (const [roleId, weight] of Object.entries(config.multiplier)) {
-                    if (member.roles.cache.has(roleId)) {
-                        entryWeight = Math.max(entryWeight, Number(weight) || 1);
+                const hasBooster = member.roles.cache.has(BOOSTER_ROLE_ID);
+
+                // نحدد أعلى Gamer role يملكها المستخدم (حسب الترتيب من الأقل للأعلى)
+                const highestGamerRoleId = VIP_ROLES_HIERARCHY
+                    .slice()
+                    .reverse() // من الأعلى للأقل حتى نأخذ الأعلى أولاً
+                    .find(rid => member.roles.cache.has(rid));
+
+                if (highestGamerRoleId) {
+                    // عنده Gamer role → نأخذ وزنه من الـ multiplier
+                    const gamerWeight = Number(config.multiplier[highestGamerRoleId]) || 1;
+                    entryWeight = hasBooster
+                        ? Math.round(gamerWeight * 1.5) // Gamer + Booster → × 1.5
+                        : gamerWeight;                  // Gamer فقط → الوزن مباشرة
+                } else if (hasBooster && config.multiplier[BOOSTER_ROLE_ID]) {
+                    // Booster فقط (بدون أي Gamer role)
+                    entryWeight = Number(config.multiplier[BOOSTER_ROLE_ID]) || 1;
+                } else {
+                    // لا Gamer ولا Booster → نأخذ أعلى وزن من الـ multiplier إن وُجد
+                    for (const [roleId, weight] of Object.entries(config.multiplier)) {
+                        if (member.roles.cache.has(roleId)) {
+                            entryWeight = Math.max(entryWeight, Number(weight) || 1);
+                        }
                     }
                 }
-            }
-
-            if (giveaway.template === 'vip' && member.roles.cache.has(BOOSTER_ROLE_ID) && buttonConfig.roleId && buttonConfig.roleId !== BOOSTER_ROLE_ID) {
-                entryWeight = Math.round(entryWeight * 1.5);
             }
 
             const prizeLabel = buttonConfig.label || this.getPrizeLabelFromConfig(entryType, config);
@@ -1878,15 +1894,24 @@ module.exports = {
                 config.entryValues?.buttons?.length === 1 &&
                 config.entryValues.buttons[0]?.type === 'SINGLE';
 
+            // SKYWELL_JOIN زي SINGLE → winner واحد من كل المشتركين
+            const isSkywellSingle =
+                config.entryValues?.buttons?.length === 1 &&
+                config.entryValues.buttons[0]?.type === 'SKYWELL_JOIN';
+
             let winnersByType = {};
 
-            if (isGenericSingleGiveaway) {
+            if (isGenericSingleGiveaway || isSkywellSingle) {
                 const weightedPool = [];
 
                 for (const e of entryList) {
                     const weight = e.weight || 1;
                     for (let i = 0; i < weight; i++) {
-                        weightedPool.push({ userId: e.userId, type: e.type || 'SINGLE', prizeLabel: null });
+                        weightedPool.push({
+                            userId: e.userId,
+                            type: e.type || (isSkywellSingle ? 'SKYWELL_JOIN' : 'SINGLE'),
+                            prizeLabel: null
+                        });
                     }
                 }
 
@@ -1907,7 +1932,8 @@ module.exports = {
                     }
                 }
 
-                winnersByType = { SINGLE: genericWinners };
+                const winnerKey = isSkywellSingle ? 'SKYWELL_JOIN' : 'SINGLE';
+                winnersByType = { [winnerKey]: genericWinners };
             } else {
                 const entriesByType = {};
                 for (const e of entryList) {
