@@ -179,8 +179,8 @@ function parseMultiplierInput(input) {
 
 const PRIZE_NAMES = {
     RN: 'Random Key',
-    GCS: 'Gift Card S',
-    GCD: 'Gift Card D',
+    GCS: 'Special Gift Card',
+    GCD: 'Discord Gift Card',
     SINGLE: 'Prize'
 };
 
@@ -902,8 +902,8 @@ module.exports = {
                     period: 'daily',
                     buttons: [
                         { type: 'RN', label: 'Random Key', min: 10, max: 15 },
-                        { type: 'GCS', label: 'Gift Card S', min: 20, max: 25 },
-                        { type: 'GCD', label: 'Gift Card D', min: 30, max: 35 }
+                        { type: 'GCS', label: 'Special Gift Card', min: 20, max: 25 },
+                        { type: 'GCD', label: 'Discord Gift Card', min: 30, max: 35 }
                     ]
                 },
                 multiplier: { [TIER_3_ROLE_ID]: 2 },

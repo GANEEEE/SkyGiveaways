@@ -17,7 +17,7 @@ const BLOCKED_ROLE_ID = '1475754299735670815';
 const MAX_ACTIVE_GIVEAWAYS = 2;
 const GIVEAWAY_LOG_CHANNEL_ID = '1385531928446373970';
 const GIVEAWAY_CHANNEL_ID = '1386682733920653454'; // ← Change this to your channel ID
-const DEFAULT_COLOR = 0x00ff00; // اللون الافتراضي أخضر
+const DEFAULT_COLOR = 0x4bff4b; // اللون الافتراضي أخضر
 
 // تعريف خيارات المنصات والألوان
 const PLATFORM_CHOICES = [
@@ -578,7 +578,8 @@ module.exports = {
             new ButtonBuilder()
                 .setCustomId(`commgiveaway_join_${giveawayCode}`)
                 .setLabel(`Join (${participantsCount})`)
-                .setStyle(ButtonStyle.Primary)
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('🕊️')
         );
 
         return {
@@ -616,7 +617,8 @@ module.exports = {
             new ButtonBuilder()
                 .setCustomId(`commgiveaway_join_${giveawayCode}`)
                 .setLabel(`Join (${participantsCount})`)
-                .setStyle(ButtonStyle.Primary)
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('🕊️')
         );
 
         return {
