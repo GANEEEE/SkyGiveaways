@@ -470,7 +470,8 @@ function buildButtonRow(config, giveawayCode, entries, disabled = false) {
                 new ButtonBuilder()
                     .setCustomId(`giveaway_join_${giveawayCode}_${globalIdx}_${suffix}`)
                     .setLabel(`${btn.label || 'Join'} (${count})`)
-                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji(`🎉`)
+                    .setStyle(ButtonStyle.Primary)
                     .setDisabled(disabled)
             );
         });
