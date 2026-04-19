@@ -1632,6 +1632,16 @@ module.exports = {
                 entryType = suffixStr;
             }
 
+            // ===== أولاً: فحص هل هو مشترك بالفعل؟ =====
+            const existingEntry = await dbManager.getParticipantByType(giveawayCode, interaction.user.id, entryType);
+            if (existingEntry) {
+                return this.safeReply(interaction, {
+                    embeds: [new EmbedBuilder().setColor('#FFA500').setDescription(`⚠️ You are already in **${existingEntry.prizeLabel || entryType}**`)],
+                    components: [this.buildLeaveButton(giveawayCode, interaction.user.id, entryType)],
+                    flags: 64
+                });
+            }
+
             // ===== فحص الـ blacklist =====
             const isBlacklisted = config.banRoleIds.some(roleId => member.roles.cache.has(roleId));
             if (isBlacklisted) {
@@ -1730,15 +1740,6 @@ module.exports = {
                         }
                     }
                 }
-            }
-
-            const existingEntry = await dbManager.getParticipantByType(giveawayCode, interaction.user.id, entryType);
-            if (existingEntry) {
-                return this.safeReply(interaction, {
-                    embeds: [new EmbedBuilder().setColor('#FFA500').setDescription('⚠️ You already joined this prize type')],
-                    components: [this.buildLeaveButton(giveawayCode, interaction.user.id, entryType)],
-                    flags: 64
-                });
             }
 
             // ===== حساب الـ weight (الأفضلية للجيمر) =====
