@@ -105,7 +105,7 @@ async function purchaseMissingMessages(userId, needed, period) {
     const profile = await dbManager.getUserProfile(userId);
     if (!profile) return { success: false, reason: 'no_profile' };
 
-    const cost = needed * 45;
+    const cost = needed * 55;
     if (profile.sky_coins < cost) {
         return { success: false, reason: 'insufficient_coins', needed: cost, have: profile.sky_coins };
     }
@@ -119,7 +119,7 @@ async function purchaseMissingMessages(userId, needed, period) {
             : 'monthly_sent';
 
     await dbManager.run(
-        `UPDATE message_stats SET ${column} = ${column} + $1 WHERE user_id = $2`,
+        `UPDATE message_stats SET ${column} = ${column} - $1 WHERE user_id = $2`,
         [needed, userId]
     );
 
@@ -1703,7 +1703,7 @@ module.exports = {
                     if (userMsgs < required) {
                         if (userMsgs >= threshold) {
                             const needed = required - userMsgs;
-                            const cost = needed * 45;
+                            const cost = needed * 55;
 
                             const purchaseBtn = new ButtonBuilder()
                                 .setCustomId(`giveaway_purchase_${giveawayCode}_${interaction.user.id}_${needed}_${period}_${btnIndex}_${entryType}`)
