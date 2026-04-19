@@ -1723,9 +1723,9 @@ module.exports = {
 
                             return this.safeReply(interaction, {
                                 embeds: [new EmbedBuilder().setColor('#FFA500').setDescription(
-                                    `❌ You need **${required}** messages (${period})\n` +
+                                    `❌ You need **${required} ${period}** messages\n` +
                                     `You have **${userMsgs}**, need **${needed}** more\n` +
-                                    `Do you want to purchase it?`
+                                    `Do you want to purchase it now?`
                                 )],
                                 components: [new ActionRowBuilder().addComponents(purchaseBtn)],
                                 flags: 64
@@ -1733,7 +1733,7 @@ module.exports = {
                         } else {
                             return this.safeReply(interaction, {
                                 embeds: [new EmbedBuilder().setColor('#FF0000').setDescription(
-                                    `❌ You need **${required}** messages (${period})` +
+                                    `❌ You need **${required} ${period}** messages` +
                                     `, You have **${userMsgs}**\n`
                                 )],
                                 flags: 64
