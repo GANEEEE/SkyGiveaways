@@ -456,7 +456,7 @@ function buildRerollV2Message(winnerListText, giveawayCode, color, rerolledUsers
         .setAccentColor(color || 0x00ff00);
 
     container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`## 🎉 **${giveawayTitle} - New Winners!**`)
+        new TextDisplayBuilder().setContent(`## 🎉 **${giveawayTitle} | New Winners!**`)
     );
 
     container.addSeparatorComponents(
@@ -901,13 +901,13 @@ module.exports = {
                 entryValues: {
                     period: 'daily',
                     buttons: [
-                        { type: 'RN', label: 'Random Key', min: 10, max: 15 },
-                        { type: 'GCS', label: 'Special Gift Card', min: 20, max: 25 },
-                        { type: 'GCD', label: 'Discord Gift Card', min: 30, max: 35 }
+                        { type: 'RN', label: 'Random Key', min: 5, max: 10 },
+                        { type: 'GCS', label: 'Special Gift Card', min: 10, max: 15 },
+                        { type: 'GCD', label: 'Discord Gift Card', min: 15, max: 25 }
                     ]
                 },
                 multiplier: { [TIER_3_ROLE_ID]: 2 },
-                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
+                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140725624852/GIFT_CARD_5_2.png?ex=69e7fcb7&is=69e6ab37&hm=ecbef5f5e40447b16d9b5ce491c43c911ba28e6de7bdba3237539e41dca2a9c9&'
             },
             // ===== VIP: زرار واحد (SINGLE) =====
             vip: {
@@ -916,8 +916,8 @@ module.exports = {
                 winnersCount: 2,
                 entryValues: {
                     period: 'daily',
-                    min: 15,
-                    max: 25,
+                    min: 10,
+                    max: 20,
                     buttons: [
                         { type: 'SINGLE', label: 'Join' }
                     ]
@@ -929,7 +929,7 @@ module.exports = {
                     [GAMER_3_ID]: 8,
                     [GAMER_4_ID]: 10
                 },
-                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
+                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140725624852/GIFT_CARD_5_2.png?ex=69e7fcb7&is=69e6ab37&hm=ecbef5f5e40447b16d9b5ce491c43c911ba28e6de7bdba3237539e41dca2a9c9&'
             },
             elite: {
                 title: 'Sky Royale Giveaway',
@@ -937,15 +937,15 @@ module.exports = {
                 winnersCount: 1,
                 entryValues: {
                     period: 'weekly',
-                    min: 25,
-                    max: 50,
+                    min: 10,
+                    max: 25,
                     buttons: [
                         { type: 'ELITE_GIFT_CARD', label: 'Gift Card', requiredRole: null },
                         { type: 'ELITE_CHOSEN_KEY', label: 'Chosen Key', requiredRole: null }
                     ]
                 },
                 multiplier: { [GAMER_5_ID]: 5, [TIER_5_ID]: 10 },
-                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
+                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140725624852/GIFT_CARD_5_2.png?ex=69e7fcb7&is=69e6ab37&hm=ecbef5f5e40447b16d9b5ce491c43c911ba28e6de7bdba3237539e41dca2a9c9&'
             },
             // ===== SKYWELL: زرار واحد بدل 5 =====
             skywell: {
@@ -965,7 +965,7 @@ module.exports = {
                     [SKYWELL_LVL4_ID]: 8,
                     [SKYWELL_LVL5_ID]: 10
                 },
-                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
+                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140725624852/GIFT_CARD_5_2.png?ex=69e7fcb7&is=69e6ab37&hm=ecbef5f5e40447b16d9b5ce491c43c911ba28e6de7bdba3237539e41dca2a9c9&'
             }
         };
 
