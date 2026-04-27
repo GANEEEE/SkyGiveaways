@@ -2,6 +2,7 @@ const { SlashCommandBuilder } = require('discord.js');
 const dbManager = require('../Data/database');
 
 const WINNER_ROLE_ID = '1395730680926965781';
+const DEFAULT_COLOR = 0x4bff4b;
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -97,6 +98,15 @@ module.exports = {
         return await channel.messages.fetch(giveaway.message_id);
     },
 
+    async getHostDisplayData(guild, giveaway) {
+        const guildMember = await guild.members.fetch(giveaway.host_id).catch(() => null);
+
+        return {
+            hostUsername: guildMember?.user?.username || giveaway.host_name || 'Host',
+            hostAvatar: guildMember?.user?.displayAvatarURL({ dynamic: true }) || null
+        };
+    },
+
     async handleEnd(interaction, giveawayId) {
         const giveaway = await this.findGiveaway(giveawayId);
 
@@ -126,6 +136,7 @@ module.exports = {
         }
 
         const giveawayCommand = interaction.client.commands.get('communitygiveaway');
+        const { hostUsername, hostAvatar } = await this.getHostDisplayData(interaction.guild, giveaway);
 
         const giveawayData = {
             gameName: giveaway.game_name,
@@ -134,6 +145,8 @@ module.exports = {
             imageUrl: giveaway.image_url,
             note: giveaway.note,
             hostId: giveaway.host_id,
+            hostUsername,
+            hostAvatar,
             reqRoleId: giveaway.req_role_id,
             messageReqType: giveaway.message_req_type,
             messageReqAmount: giveaway.message_req_amount
@@ -257,6 +270,25 @@ module.exports = {
 
             await this.updateOriginalMessage(message, giveaway, finalWinners);
 
+            const guildMember = await message.guild.members.fetch(giveaway.host_id).catch(() => null);
+            const hostUsername = guildMember?.user?.username || giveaway.host_name || 'Host';
+            const hostAvatar = guildMember?.user?.displayAvatarURL({ dynamic: true }) || null;
+            const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color, 10) : DEFAULT_COLOR;
+
+            const giveawayCommand = message.client.commands.get('communitygiveaway');
+            const announcementMessage = giveawayCommand.buildWinnersAnnouncementEmbed(
+                giveaway.game_name,
+                giveaway.host_id,
+                giveaway.participants?.length || 0,
+                newWinners,
+                hostUsername,
+                hostAvatar,
+                giveaway.giveaway_code,
+                embedColor
+            );
+
+            await message.channel.send(announcementMessage);
+
             return interaction.editReply({
                 content: `✅ Reroll Successful!\nReplaced ${rerollCount} winner(s) with new winners\nProtected ${protectedWinners.length} winner(s) who already confirmed`,
                 allowedMentions: { parse: [] }
@@ -301,12 +333,11 @@ module.exports = {
 
     async updateOriginalMessage(message, giveaway, finalWinners) {
         try {
-            const confirmationStatus = await dbManager.getCommunityGiveawayConfirmationStatus(giveaway.giveaway_code);
-            const coDeMembers = confirmationStatus?.coDeMembers || [];
-            const confirmCount = confirmationStatus?.confirmCount || 0;
-            const declineCount = confirmationStatus?.declineCount || 0;
-
             const giveawayCommand = message.client.commands.get('communitygiveaway');
+            const guildMember = await message.guild.members.fetch(giveaway.host_id).catch(() => null);
+            const hostUsername = guildMember?.user?.username || giveaway.host_name || 'Host';
+            const hostAvatar = guildMember?.user?.displayAvatarURL({ dynamic: true }) || null;
+            const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color, 10) : DEFAULT_COLOR;
 
             const endedMessage = giveawayCommand.createEndedGiveawayMessage(
                 giveaway.game_name,
@@ -320,10 +351,11 @@ module.exports = {
                 giveaway.giveaway_code,
                 giveaway.message_req_type,
                 giveaway.message_req_amount,
-                confirmCount,
-                declineCount,
                 finalWinners,
-                coDeMembers
+                hostUsername,
+                hostAvatar,
+                giveaway.req_role_id,
+                embedColor
             );
 
             await message.edit(endedMessage);

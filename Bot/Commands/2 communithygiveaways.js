@@ -4,22 +4,27 @@ const {
     EmbedBuilder,
     ActionRowBuilder,
     ButtonBuilder,
-    ButtonStyle
+    ButtonStyle,
+    ContainerBuilder,
+    TextDisplayBuilder,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
+    MessageFlags
 } = require('discord.js');
 const dbManager = require('../Data/database');
 const parseDuration = require('../System/durationParser');
 
 // Constants
 const WINNER_ROLE_ID = '1395730680926965781';
-const REQUIRED_LEVEL = 1;
+const REQUIRED_LEVEL = 0;
 const REQUIRED_ROLE_IDS = ['1386710923594436639', '1394820196375593122'];
 const BLOCKED_ROLE_ID = '1475754299735670815';
 const MAX_ACTIVE_GIVEAWAYS = 2;
 const GIVEAWAY_LOG_CHANNEL_ID = '1385531928446373970';
-const GIVEAWAY_CHANNEL_ID = '1386682733920653454'; // ← Change this to your channel ID
-const DEFAULT_COLOR = 0x4bff4b; // اللون الافتراضي أخضر
+const GIVEAWAY_CHANNEL_ID = '1386682733920653454';
+const DEFAULT_COLOR = 0x4bff4b;
 
-// تعريف خيارات المنصات والألوان
+// Platform choices
 const PLATFORM_CHOICES = [
     { name: 'Steam', value: 'Steam' },
     { name: 'GOG', value: 'GOG' },
@@ -40,7 +45,6 @@ const COLOR_CHOICES = [
     { name: 'Gray', value: '#95a5a6' }
 ];
 
-// Store preview sessions
 const previewSessions = new Map();
 
 module.exports = {
@@ -50,10 +54,6 @@ module.exports = {
         .addStringOption(option =>
             option.setName('game_name')
                 .setDescription('Name of the game')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('game_link')
-                .setDescription('Link to the game store page')
                 .setRequired(true))
         .addStringOption(option =>
             option.setName('duration')
@@ -74,6 +74,10 @@ module.exports = {
                 .setRequired(true)
                 .setMinValue(1)
                 .setMaxValue(25))
+        .addStringOption(option =>
+            option.setName('game_link')
+                .setDescription('Link to the game store page (optional)')
+                .setRequired(false))
         .addStringOption(option =>
             option.setName('note')
                 .setDescription('Additional note (optional)')
@@ -101,7 +105,11 @@ module.exports = {
             option.setName('color')
                 .setDescription('Embed color (optional)')
                 .setRequired(false)
-                .addChoices(...COLOR_CHOICES)),
+                .addChoices(...COLOR_CHOICES))
+        .addUserOption(option =>
+            option.setName('host')
+                .setDescription('Custom host (optional, defaults to command user)')
+                .setRequired(false)),
 
     buildReplyEmbed(color, text) {
         return new EmbedBuilder().setColor(color).setDescription(text);
@@ -136,20 +144,41 @@ module.exports = {
         return DEFAULT_COLOR;
     },
 
+    getGameTitle(gameName, gameLink) {
+        if (gameLink && gameLink.trim()) {
+            return `[${gameName}](${gameLink})`;
+        }
+        return gameName;
+    },
+
+    buildMessageRequirementsDescription(messageReqType, messageReqAmount) {
+        if (!messageReqType || !messageReqAmount) return [];
+
+        const lines = ['Messages Sent:'];
+        const typeNames = {
+            total: 'Total',
+            monthly: 'Monthly',
+            weekly: 'Weekly',
+            daily: 'Daily'
+        };
+        const periodLabel = typeNames[messageReqType]?.toLowerCase() || 'messages';
+        lines.push(`• ${messageReqAmount} ${periodLabel} messages`);
+
+        return lines;
+    },
+
     async execute(interaction) {
         try {
             await interaction.deferReply({ ephemeral: true });
 
-            // Fetch the target channel (Giveaways_Channel)
             const targetChannel = await interaction.guild.channels.fetch(GIVEAWAY_CHANNEL_ID);
             if (!targetChannel) {
                 return await interaction.editReply({
-                    content: `❌ Giveaways channel not found. Please set a valid channel ID in the code.`,
+                    content: '❌ Giveaways channel not found. Please set a valid channel ID in the code.',
                     allowedMentions: { parse: [] }
                 });
             }
 
-            // Permission checks
             if (interaction.member.roles.cache.has(BLOCKED_ROLE_ID)) {
                 return await interaction.editReply({
                     content: '❌ You are blocked from creating giveaways',
@@ -203,7 +232,15 @@ module.exports = {
             const messageReqType = interaction.options.getString('message_requirement_type');
             const messageReqAmount = interaction.options.getInteger('message_requirement_amount');
             const colorInput = interaction.options.getString('color');
+            const customHost = interaction.options.getUser('host');
             const embedColor = this.parseColor(colorInput);
+
+            const hostUser = customHost || interaction.user;
+            const displayHost = {
+                id: hostUser.id,
+                username: hostUser.username,
+                displayAvatarURL: () => hostUser.displayAvatarURL({ dynamic: true })
+            };
 
             if ((messageReqType && !messageReqAmount) || (!messageReqType && messageReqAmount)) {
                 return await interaction.editReply({
@@ -223,7 +260,6 @@ module.exports = {
             const endsAt = new Date(Date.now() + durationMs);
             const giveawayCode = this.generateGiveawayCode();
 
-            // Store data for preview
             const previewId = Math.random().toString(36).slice(2, 10).toUpperCase();
             previewSessions.set(previewId, {
                 targetChannel,
@@ -239,13 +275,13 @@ module.exports = {
                 durationInput,
                 endsAt,
                 giveawayCode,
-                host: interaction.user,
+                host: displayHost,
+                originalUser: interaction.user,
                 interaction,
                 embedColor
             });
 
-            // Create preview embed
-            const previewEmbed = this.createPreviewEmbed(
+            const previewEmbed = this.createGiveawayEmbed(
                 gameName,
                 gameLink,
                 platform,
@@ -256,9 +292,10 @@ module.exports = {
                 messageReqType,
                 messageReqAmount,
                 imageUrl,
-                interaction.user,
+                displayHost,
                 giveawayCode,
-                embedColor
+                embedColor,
+                0
             );
 
             const previewRows = [
@@ -289,60 +326,45 @@ module.exports = {
         }
     },
 
-    createPreviewEmbed(gameName, gameLink, platform, endsAt, winnersCount, note, reqRole, messageReqType, messageReqAmount, imageUrl, host, giveawayCode, color) {
+    createGiveawayEmbed(gameName, gameLink, platform, endsAt, winnersCount, note, reqRole, messageReqType, messageReqAmount, imageUrl, host, giveawayCode, color, participantsCount = 0) {
         const embed = new EmbedBuilder()
             .setColor(color)
-            .setDescription(
-                this.buildMainDescription(
-                    gameName,
-                    gameLink,
-                    platform,
-                    endsAt,
-                    winnersCount,
-                    note,
-                    reqRole,
-                    0,
-                    messageReqType,
-                    messageReqAmount
-                )
+            .setDescription(this.buildDescription(
+                gameName,
+                gameLink,
+                platform,
+                note,
+                reqRole,
+                messageReqType,
+                messageReqAmount
+            ))
+            .addFields(
+                { name: 'Status', value: `<t:${Math.floor(endsAt.getTime() / 1000)}:R>`, inline: true },
+                { name: 'Participants', value: `${participantsCount}`, inline: true },
+                { name: 'Winners', value: `${winnersCount}`, inline: true }
             )
-            .setFooter(this.buildFooter(host, giveawayCode))
-            .setTitle('🔍 Preview Mode');
+            .setFooter({
+                text: `${host.username || 'Host'} | ID: ${giveawayCode}`,
+                iconURL: host.displayAvatarURL ? host.displayAvatarURL() : undefined
+            });
 
-        if (imageUrl) embed.setImage(imageUrl);
+        if (imageUrl && imageUrl.trim()) {
+            embed.setImage(imageUrl);
+        }
+
         return embed;
     },
 
-    buildMainDescription(gameName, gameLink, platform, endsAt, winnersCount, note, reqRole, participantsCount, messageReqType, messageReqAmount, ended = false, winnersList = null) {
-        const safeGameLink = gameLink || 'https://store.steampowered.com';
-        const lines = [];
+    buildDescription(gameName, gameLink, platform, note, reqRole, messageReqType, messageReqAmount) {
+        const sections = [];
+        const titleText = this.getGameTitle(gameName, gameLink);
 
-        // Game name as clickable link
-        if (gameLink) {
-            lines.push(`## **[${gameName}](${safeGameLink})** | **${platform}**`);
-        } else {
-            lines.push(`## **${gameName}** | **${platform}**`);
-        }
-        lines.push('');
-
-        if (!ended && endsAt) {
-            lines.push(`Ends in: <t:${Math.floor(endsAt.getTime() / 1000)}:R>`);
-        }
-
-        lines.push(`Participants: **${participantsCount}**`);
-
-        // Show winners list if ended and winnersList provided, otherwise show count
-        if (ended && winnersList && winnersList.length > 0) {
-            const winnersMentions = winnersList.map(id => `<@${id}>`).join(', ');
-            lines.push(`Winners: ${winnersMentions}`);
-        } else {
-            lines.push(`Winners: **${winnersCount}**`);
-        }
-
-        lines.push('');
+        sections.push(`## ${titleText} | ${platform}`);
 
         if (reqRole) {
-            lines.push(`Required Role: <@&${reqRole.id || reqRole}>`);
+            sections.push(
+                `Required Role: <@&${reqRole.id}>\nWinner Role: <@&${WINNER_ROLE_ID}>`
+            );
         }
 
         if (messageReqType && messageReqAmount) {
@@ -352,20 +374,23 @@ module.exports = {
                 weekly: 'Weekly',
                 daily: 'Daily'
             };
-            lines.push(`• ${messageReqAmount} ${typeNames[messageReqType]} messages to qualify`);
+
+            const periodLabel = typeNames[messageReqType]?.toLowerCase() || 'messages';
+            sections.push(`Messages Sent:\n• ${messageReqAmount} ${periodLabel} messages`);
         }
 
-        lines.push('');
+        if (note) {
+            sections.push(`*Note: ${note}*`);
+        }
 
-        if (note) lines.push(`Note: \`${note}\``);
-
-        return lines.join('\n');
+        return sections.join('\n\n');
     },
+
 
     buildFooter(user, giveawayCode) {
         return {
             text: `${user.username || 'Host'} | ID: ${giveawayCode}`,
-            iconURL: user.displayAvatarURL ? user.displayAvatarURL({ dynamic: true }) : user.hostAvatar || undefined
+            iconURL: user.displayAvatarURL ? user.displayAvatarURL({ dynamic: true }) : undefined
         };
     },
 
@@ -384,6 +409,7 @@ module.exports = {
             endsAt,
             giveawayCode,
             host,
+            originalUser,
             interaction,
             embedColor
         } = sessionData;
@@ -410,7 +436,7 @@ module.exports = {
         const result = await dbManager.createCommunityGiveaway({
             giveawayCode,
             gameName,
-            gameLink,
+            gameLink: gameLink || null,
             platform,
             imageUrl,
             winnersCount,
@@ -450,7 +476,9 @@ module.exports = {
             imageUrl,
             endsAt,
             host,
-            embedColor
+            originalUser,
+            embedColor,
+            messageId: message.id
         });
 
         this.setupJoinCollector(message, giveawayCode, endsAt, winnersCount, interaction.client, {
@@ -465,10 +493,9 @@ module.exports = {
             hostAvatar: host.displayAvatarURL({ dynamic: true }),
             messageReqType,
             messageReqAmount,
-            embedColor
+            embedColor,
+            winnersCount
         });
-
-        this.setupConfirmCollector(message, giveawayCode, interaction.client, this);
 
         const successEmbed = new EmbedBuilder()
             .setColor(0x00ff00)
@@ -503,7 +530,6 @@ module.exports = {
             });
         }
 
-        // User confirmed, create the giveaway
         const result = await this.finalizeGiveawayCreation(session);
         return interaction.update({
             content: '',
@@ -518,33 +544,28 @@ module.exports = {
             if (!logChannel) return;
 
             const {
-                gameName, gameLink, platform, winnersCount, note, reqRole,
-                messageReqType, messageReqAmount, giveawayCode, channel,
-                imageUrl, endsAt, host, embedColor
+                gameName, gameLink, platform, winnersCount,
+                giveawayCode, channel, endsAt, originalUser,
+                embedColor, messageId
             } = giveawayData;
 
-            const embed = new EmbedBuilder()
+            const titleText = this.getGameTitle(gameName, gameLink);
+            const messageLink = `https://discord.com/channels/${interaction.guildId}/${channel.id}/${messageId}`;
+
+            const logEmbed = new EmbedBuilder()
                 .setColor(embedColor || DEFAULT_COLOR)
                 .setDescription(
-                    this.buildMainDescription(
-                        gameName,
-                        gameLink,
-                        platform,
-                        endsAt,
-                        winnersCount,
-                        note,
-                        reqRole,
-                        0,
-                        messageReqType,
-                        messageReqAmount
-                    ) + `\n\n**Channel:** ${channel}\n**Host:** ${host}`
+                    `### ${titleText} | ${platform}\n\n` +
+                    `**[Jump to Giveaway](${messageLink})** | **Channel:** ${channel}\n` +
+                    `${winnersCount} Winners | **End:** <t:${Math.floor(endsAt.getTime() / 1000)}:F>\n`
                 )
-                .setFooter(this.buildFooter(host, giveawayCode));
-
-            if (imageUrl) embed.setImage(imageUrl);
+                .setFooter({
+                    text: `Created by: ${originalUser.username} | ID: ${giveawayCode}`,
+                    iconURL: originalUser.displayAvatarURL({ dynamic: true })
+                });
 
             await logChannel.send({
-                embeds: [embed],
+                embeds: [logEmbed],
                 allowedMentions: { parse: [] }
             });
 
@@ -554,25 +575,22 @@ module.exports = {
     },
 
     createGiveawayMessage(gameName, gameLink, platform, endsAt, winnersCount, note, reqRole, imageUrl, giveawayCode, user, participantsCount, messageReqType, messageReqAmount, color = DEFAULT_COLOR) {
-        const embed = new EmbedBuilder()
-            .setColor(color)
-            .setDescription(
-                this.buildMainDescription(
-                    gameName,
-                    gameLink,
-                    platform,
-                    endsAt,
-                    winnersCount,
-                    note,
-                    reqRole,
-                    participantsCount,
-                    messageReqType,
-                    messageReqAmount
-                )
-            )
-            .setFooter(this.buildFooter(user, giveawayCode));
-
-        if (imageUrl) embed.setImage(imageUrl);
+        const embed = this.createGiveawayEmbed(
+            gameName,
+            gameLink,
+            platform,
+            endsAt,
+            winnersCount,
+            note,
+            reqRole,
+            messageReqType,
+            messageReqAmount,
+            imageUrl,
+            user,
+            giveawayCode,
+            color,
+            participantsCount
+        );
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -590,28 +608,22 @@ module.exports = {
     },
 
     updateGiveawayMessage(gameName, gameLink, platform, endsAt, winnersCount, note, reqRoleId, imageUrl, giveawayCode, hostId, hostUsername, hostAvatar, participantsCount, messageReqType, messageReqAmount, color = DEFAULT_COLOR) {
-        const embed = new EmbedBuilder()
-            .setColor(color)
-            .setDescription(
-                this.buildMainDescription(
-                    gameName,
-                    gameLink,
-                    platform,
-                    endsAt,
-                    winnersCount,
-                    note,
-                    reqRoleId ? { id: reqRoleId } : null,
-                    participantsCount,
-                    messageReqType,
-                    messageReqAmount
-                )
-            )
-            .setFooter({
-                text: `${hostUsername || 'Host'} | ID: ${giveawayCode}`,
-                iconURL: hostAvatar || undefined
-            });
-
-        if (imageUrl) embed.setImage(imageUrl);
+        const embed = this.createGiveawayEmbed(
+            gameName,
+            gameLink,
+            platform,
+            endsAt,
+            winnersCount,
+            note,
+            reqRoleId ? { id: reqRoleId } : null,
+            messageReqType,
+            messageReqAmount,
+            imageUrl,
+            { username: hostUsername, displayAvatarURL: () => hostAvatar },
+            giveawayCode,
+            color,
+            participantsCount
+        );
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -628,18 +640,29 @@ module.exports = {
         };
     },
 
-    createEndedGiveawayMessage(gameName, gameLink, platform, imageUrl, note, hostId, participantsCount, winnersCount, giveawayCode, messageReqType, messageReqAmount, confirmCount = 0, declineCount = 0, winners = [], coDeMembers = [], hostUsername = 'Host', hostAvatar = null, reqRoleId = null, color = DEFAULT_COLOR) {
-        // استخدام buildMainDescription لإنشاء الإمبيد الرئيسي
+    createEndedGiveawayMessage(gameName, gameLink, platform, imageUrl, note, hostId, participantsCount, winnersCount, giveawayCode, messageReqType, messageReqAmount, winners = [], hostUsername = 'Host', hostAvatar = null, reqRoleId = null, color = DEFAULT_COLOR) {
+        let winnersFieldValue = '';
+        if (winners.length === 0) {
+            winnersFieldValue = 'No winners';
+        } else {
+            winnersFieldValue = winners.map(id => `<@${id}>`).join(', ');
+        }
+
         const mainEmbed = new EmbedBuilder()
             .setColor(color)
-            .setDescription(
-                this.buildMainDescription(
-                    gameName, gameLink, platform, null, winnersCount, note,
-                    reqRoleId ? { id: reqRoleId } : null,
-                    participantsCount, messageReqType, messageReqAmount,
-                    true, // ended
-                    winners
-                )
+            .setDescription(this.buildDescription(
+                gameName,
+                gameLink,
+                platform,
+                note,
+                reqRoleId ? { id: reqRoleId } : null,
+                messageReqType,
+                messageReqAmount
+            ))
+            .addFields(
+                { name: 'Status', value: 'Ended', inline: true },
+                { name: 'Participants', value: `${participantsCount}`, inline: true },
+                { name: 'Winners', value: winnersFieldValue, inline: false }
             )
             .setFooter({
                 text: `${hostUsername} | ID: ${giveawayCode}`,
@@ -648,61 +671,57 @@ module.exports = {
 
         if (imageUrl) mainEmbed.setImage(imageUrl);
 
-        // إمبيد الفائزين للتأكيد
-        const winnerStatusMap = new Map();
-        for (const winner of winners) winnerStatusMap.set(winner, '⌛');
-        for (const member of coDeMembers) {
-            if (member && member.user_id && winners.includes(member.user_id)) {
-                winnerStatusMap.set(member.user_id, member.status === 'confirm' ? '✅' : '❌');
-            }
-        }
+        return {
+            embeds: [mainEmbed],
+            components: [],
+            allowedMentions: { parse: [] }
+        };
+    },
 
-        let winnersText = '';
+        buildWinnersAnnouncementEmbed(gameName, hostId, participantsCount, winners = [], hostUsername = 'Host', hostAvatar = null, giveawayCode) {
+        let titleText = '';
+        let bodyText = '';
+
         if (participantsCount === 0) {
-            winnersText = `## 😕 No Participants\nUnfortunately, no one joined this giveaway`;
-        } else if (winnersCount === 1) {
-            const winner = winners[0] || 'Unknown';
-            const status = winnerStatusMap.get(winner) || '⌛';
-            winnersText = `## ${status} Congratulations To <@${winner}>\nYou won **${gameName}**, please contact with <@${hostId}>\n\n-# Press Confirm if the key worked, otherwise press Decline`;
+            titleText = 'No Participants';
+            bodyText = 'Unfortunately, no one joined this giveaway';
+        } else if (winners.length === 0) {
+            titleText = 'No Winners';
+            bodyText = 'Could not determine winners for this giveaway';
         } else {
-            const winnersWithStatus = winners.map(id => {
-                const status = winnerStatusMap.get(id) || '⌛';
-                return `<@${id}> ${status}`;
-            }).join(' - ');
-            winnersText = `## 🎉 Congratulations To Winners!\n${winnersWithStatus}\nYou won **${gameName}**, please contact with <@${hostId}>\n\n-# Press Confirm if the key worked, otherwise press Decline`;
+            const winnersMentions = winners.map(id => `<@${id}>`).join(', ');
+            titleText = `${gameName} Winner${winners.length > 1 ? 's' : ''}`;
+            bodyText = `### ${winnersMentions} won the giveaway\n-# Please contact the host to claim`;
         }
 
-        const winnersEmbed = new EmbedBuilder()
-            .setColor(0x00ff00)
-            .setDescription(winnersText);
-
-        const rows = [];
-        if (participantsCount > 0) {
-            rows.push(
-                new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`commgiveaway_confirm_${giveawayCode}`)
-                        .setLabel(`Confirm (${confirmCount}/${winnersCount})`)
-                        .setStyle(ButtonStyle.Success),
-                    new ButtonBuilder()
-                        .setCustomId(`commgiveaway_decline_${giveawayCode}`)
-                        .setLabel(`Decline (${declineCount}/${winnersCount})`)
-                        .setStyle(ButtonStyle.Danger)
-                )
+        const container = new ContainerBuilder()
+            .setAccentColor(DEFAULT_COLOR)
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(`# ${titleText}`)
+            )
+            .addSeparatorComponents(
+                new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small)
+            )
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(bodyText)
+            )
+            .addSeparatorComponents(
+                new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small)
+            )
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(`**Host: <@${hostId}>** | \`ID: ${giveawayCode}\``)
             );
-        }
 
         return {
-            embeds: [mainEmbed, winnersEmbed],
-            components: rows,
-            allowedMentions: { parse: ['users'] }
+            flags: MessageFlags.IsComponentsV2,
+            components: [container],
+            allowedMentions: { users: winners, parse: [] }
         };
     },
 
     async buttonHandler(interaction) {
         const customId = interaction.customId;
 
-        // Handle preview buttons
         if (customId.startsWith('commgiveaway_preview_')) {
             const parts = customId.split('_');
             const previewId = parts[2];
@@ -710,7 +729,6 @@ module.exports = {
             return this.handlePreview(interaction, previewId, decision);
         }
 
-        // Handle leave buttons
         if (customId.startsWith('commgiveaway_leave_')) {
             const parts = customId.split('_');
             const giveawayCode = parts[2];
@@ -718,7 +736,7 @@ module.exports = {
 
             if (interaction.user.id !== userId) {
                 return interaction.reply({
-                    embeds: [this.buildReplyEmbed(0xff0000, '❌ This button is not for you.')],
+                    embeds: [this.buildReplyEmbed(0xff0000, '❌ This button is not for you')],
                     ephemeral: true
                 });
             }
@@ -741,7 +759,7 @@ module.exports = {
 
             const endsAt = new Date(giveaway.ends_at);
             const guildMember = await interaction.guild.members.fetch(giveaway.host_id).catch(() => null);
-            const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color) : DEFAULT_COLOR;
+            const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color, 10) : DEFAULT_COLOR;
 
             const updatedMessage = this.updateGiveawayMessage(
                 giveaway.game_name,
@@ -774,7 +792,7 @@ module.exports = {
     },
 
     setupJoinCollector(message, giveawayCode, endsAt, winnersCount, client, giveawayData) {
-        const filter = (i) => i.customId === `commgiveaway_join_${giveawayCode}`;
+        const filter = i => i.customId === `commgiveaway_join_${giveawayCode}`;
         const timeRemaining = endsAt.getTime() - Date.now();
 
         const collector = message.createMessageComponentCollector({
@@ -782,7 +800,7 @@ module.exports = {
             time: timeRemaining
         });
 
-        collector.on('collect', async (i) => {
+        collector.on('collect', async i => {
             try {
                 if (!i.deferred && !i.replied) {
                     await i.deferReply({ ephemeral: true });
@@ -850,7 +868,7 @@ module.exports = {
 
                 const result = await dbManager.addCommunityGiveawayParticipant(giveawayCode, i.user.id, i.user.username);
                 if (result.success) {
-                    const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color) : DEFAULT_COLOR;
+                    const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color, 10) : DEFAULT_COLOR;
                     const updatedMessage = this.updateGiveawayMessage(
                         giveawayData.gameName,
                         giveawayData.gameLink,
@@ -898,9 +916,7 @@ module.exports = {
             const giveaway = await dbManager.getActiveCommunityGiveawayByCode(giveawayCode);
             if (!giveaway) return;
 
-            const confirmationStatus = await dbManager.getCommunityGiveawayConfirmationStatus(giveawayCode);
-            const coDeMembers = confirmationStatus?.coDeMembers || [];
-            const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color) : DEFAULT_COLOR;
+            const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color, 10) : DEFAULT_COLOR;
 
             const result = await dbManager.endCommunityGiveaway(giveawayCode);
             if (!result.success) return;
@@ -918,20 +934,27 @@ module.exports = {
                     giveawayCode,
                     giveawayData.messageReqType,
                     giveawayData.messageReqAmount,
-                    0,
-                    0,
                     [],
-                    coDeMembers,
                     giveawayData.hostUsername,
                     giveawayData.hostAvatar,
                     giveaway.req_role_id,
                     embedColor
                 );
                 await message.edit(endedMessage);
+
+                const announcementMessage = this.buildWinnersAnnouncementEmbed(
+                    giveawayData.gameName,
+                    giveawayData.hostId,
+                    0,
+                    [],
+                    giveawayData.hostUsername,
+                    giveawayData.hostAvatar,
+                    giveawayCode
+                );
+                await message.channel.send(announcementMessage);
                 return;
             }
 
-            const actualWinnersCount = result.winners ? result.winners.length : 0;
             const winners = result.winners || [];
 
             for (const winnerId of winners) {
@@ -951,14 +974,11 @@ module.exports = {
                 giveawayData.note,
                 giveawayData.hostId,
                 result.participantsCount || 0,
-                actualWinnersCount,
+                winners.length,
                 giveawayCode,
                 giveawayData.messageReqType,
                 giveawayData.messageReqAmount,
-                0,
-                0,
                 winners,
-                coDeMembers,
                 giveawayData.hostUsername,
                 giveawayData.hostAvatar,
                 giveaway.req_role_id,
@@ -966,178 +986,19 @@ module.exports = {
             );
             await message.edit(endedMessage);
 
+            const announcementMessage = this.buildWinnersAnnouncementEmbed(
+                giveawayData.gameName,
+                giveawayData.hostId,
+                result.participantsCount || 0,
+                winners,
+                giveawayData.hostUsername,
+                giveawayData.hostAvatar,
+                giveawayCode
+            );
+            await message.channel.send(announcementMessage);
+
         } catch (error) {
             console.error('Error handling giveaway end:', error);
-        }
-    },
-
-    setupConfirmCollector(message, giveawayCode, client, commandContext) {
-        const filter = (i) => {
-            return i.customId === `commgiveaway_confirm_${giveawayCode}` ||
-                   i.customId === `commgiveaway_decline_${giveawayCode}`;
-        };
-
-        const collector = message.createMessageComponentCollector({
-            filter,
-            time: null
-        });
-
-        collector.on('collect', async (i) => {
-            try {
-                await i.deferReply({ ephemeral: true });
-
-                const action = i.customId.includes('confirm') ? 'confirm' : 'decline';
-                const result = await dbManager.updateCommunityGiveawayWinnerStatus(giveawayCode, i.user.id, action);
-
-                if (!result.success) {
-                    if (result.code === 'NOT_WINNER') {
-                        await i.editReply({
-                            embeds: [this.buildReplyEmbed(0xff0000, '❌ This button is for winners only!')]
-                        });
-                    } else if (result.code === 'ALREADY_VOTED') {
-                        await i.editReply({
-                            embeds: [this.buildReplyEmbed(0xff0000, '❌ You have already voted!')]
-                        });
-                    } else {
-                        await i.editReply({
-                            embeds: [this.buildReplyEmbed(0xff0000, `❌ ${result.error}`)]
-                        });
-                    }
-                    return;
-                }
-
-                const updatedConfirmation = await dbManager.getCommunityGiveawayConfirmationStatus(giveawayCode);
-                const updatedCoDeMembers = updatedConfirmation?.coDeMembers || [];
-                const updatedGiveaway = await dbManager.getCommunityGiveawayByCode(giveawayCode);
-                const updatedWinners = updatedGiveaway?.winners || [];
-                const embedColor = updatedGiveaway.embed_color ? parseInt(updatedGiveaway.embed_color) : DEFAULT_COLOR;
-
-                const guildMember = await message.guild.members.fetch(updatedGiveaway.host_id).catch(() => null);
-                const hostUsername = guildMember?.user?.username || updatedGiveaway.host_name || 'Host';
-                const hostAvatar = guildMember?.user?.displayAvatarURL({ dynamic: true }) || null;
-
-                const updatedMessage = commandContext.createEndedGiveawayMessage(
-                    updatedGiveaway.game_name,
-                    updatedGiveaway.game_link,
-                    updatedGiveaway.platform,
-                    updatedGiveaway.image_url,
-                    updatedGiveaway.note,
-                    updatedGiveaway.host_id,
-                    updatedGiveaway.participants?.length || 0,
-                    updatedWinners.length,
-                    giveawayCode,
-                    updatedGiveaway.message_req_type,
-                    updatedGiveaway.message_req_amount,
-                    updatedConfirmation.confirmCount || 0,
-                    updatedConfirmation.declineCount || 0,
-                    updatedWinners,
-                    updatedCoDeMembers,
-                    hostUsername,
-                    hostAvatar,
-                    updatedGiveaway.req_role_id,
-                    embedColor
-                );
-
-                if (result.data.allResponded) {
-                    updatedMessage.components = [];
-                }
-
-                await message.edit(updatedMessage);
-
-                await i.editReply({
-                    embeds: [this.buildReplyEmbed(0x00ff00, `✅ You have ${action === 'confirm' ? 'confirmed' : 'declined'} your prize!`)]
-                });
-
-                if (result.data.allResponded) {
-                    await this.handleAllResponded(message, giveawayCode, result.data, updatedWinners.length);
-                }
-
-            } catch (error) {
-                console.error('Error in confirm collector:', error);
-                await i.editReply({
-                    embeds: [this.buildReplyEmbed(0xff0000, '❌ An error occurred')]
-                }).catch(() => {});
-            }
-        });
-    },
-
-    async handleAllResponded(message, giveawayCode, data, actualWinnersCount) {
-        try {
-            const giveaway = await dbManager.getCommunityGiveawayByCode(giveawayCode);
-            if (!giveaway) return;
-
-            const guildMember = await message.guild.members.fetch(giveaway.host_id).catch(() => null);
-            const hostUsername = guildMember?.user?.username || giveaway.host_name || 'Host';
-            const hostAvatar = guildMember?.user?.displayAvatarURL({ dynamic: true }) || null;
-            const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color) : DEFAULT_COLOR;
-
-            const updatedConfirmation = await dbManager.getCommunityGiveawayConfirmationStatus(giveawayCode);
-            const updatedCoDeMembers = updatedConfirmation?.coDeMembers || [];
-            const updatedWinners = giveaway.winners || [];
-
-            const statusMap = new Map();
-            for (const winnerId of updatedWinners) {
-                statusMap.set(winnerId, '⌛');
-            }
-
-            for (const entry of updatedCoDeMembers) {
-                if (!entry?.user_id) continue;
-                statusMap.set(entry.user_id, entry.status === 'confirm' ? '✅' : '❌');
-            }
-
-            const winnersLines = updatedWinners.map(winnerId => {
-                const status = statusMap.get(winnerId) || '⌛';
-                return `${status} <@${winnerId}>`;
-            }).join('\n');
-
-            let resultText = '';
-            if (data.allConfirmed) {
-                await dbManager.rewardCommunityHost(giveawayCode, giveaway.host_id);
-                resultText =
-                    `## ✅ All ${actualWinnersCount} Winners Confirmed!\n` +
-                    `${winnersLines}\n\n` +
-                    `<@${giveaway.host_id}> received 250 XP and 150 Coins!`;
-            } else {
-                resultText =
-                    `## ❌ Not All Winners Confirmed!\n` +
-                    `${winnersLines}\n\n` +
-                    `One or more winners declined the prize.`;
-            }
-
-            const resultEmbed = new EmbedBuilder()
-                .setColor(data.allConfirmed ? 0x00ff00 : 0xff0000)
-                .setDescription(resultText);
-
-            const mainEndedMessage = this.createEndedGiveawayMessage(
-                giveaway.game_name,
-                giveaway.game_link,
-                giveaway.platform,
-                giveaway.image_url,
-                giveaway.note,
-                giveaway.host_id,
-                giveaway.participants?.length || 0,
-                updatedWinners.length,
-                giveaway.giveaway_code,
-                giveaway.message_req_type,
-                giveaway.message_req_amount,
-                updatedConfirmation?.confirmCount || 0,
-                updatedConfirmation?.declineCount || 0,
-                updatedWinners,
-                updatedCoDeMembers,
-                hostUsername,
-                hostAvatar,
-                giveaway.req_role_id,
-                embedColor
-            );
-
-            await message.edit({
-                embeds: [mainEndedMessage.embeds[0], resultEmbed],
-                components: [],
-                allowedMentions: { parse: ['users'] }
-            });
-
-        } catch (error) {
-            console.error('Error handling all responded:', error);
         }
     },
 

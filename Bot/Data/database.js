@@ -588,9 +588,10 @@ class DatabaseManager {
 
                     -- بيانات الجيفاواي الأساسية
                     game_name TEXT NOT NULL,
-                    game_link TEXT NOT NULL,
+                    game_link TEXT,
                     platform TEXT NOT NULL,
                     image_url TEXT NOT NULL,
+                    embed_color TEXT,
                     note TEXT,
                     req_role_id TEXT,
                     winners_count INTEGER DEFAULT 1,
@@ -2056,24 +2057,41 @@ bypass_role_mode TEXT DEFAULT 'n',
             const {
                 giveawayCode, gameName, gameLink, platform, imageUrl,
                 winnersCount, note, reqRoleId, messageReqType, messageReqAmount,
-                endsAt, hostId, hostName, guildId, messageId, channelId
+                endsAt, hostId, hostName, guildId, messageId, channelId, embedColor
             } = data;
 
             const result = await this.run(
                 `INSERT INTO community_giveaways
                  (giveaway_code, game_name, game_link, platform, image_url, note, req_role_id,
                   winners_count, message_req_type, message_req_amount, ends_at, host_id, host_name,
-                  guild_id, message_id, channel_id, participants, winners, is_active, is_ended)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                  guild_id, message_id, channel_id, participants, winners, is_active, is_ended, embed_color)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
                  RETURNING id`,
                 [
-                    giveawayCode, gameName, gameLink || null, platform, imageUrl,
-                    note || null, reqRoleId || null, winnersCount,
-                    messageReqType || null, messageReqAmount || null, endsAt,
-                    hostId, hostName, guildId, messageId, channelId,
-                    '{}', '{}', true, false
+                    giveawayCode,
+                    gameName,
+                    gameLink || null,
+                    platform,
+                    imageUrl,
+                    note || null,
+                    reqRoleId || null,
+                    winnersCount,
+                    messageReqType || null,
+                    messageReqAmount || null,
+                    endsAt,
+                    hostId,
+                    hostName,
+                    guildId,
+                    messageId,
+                    channelId,
+                    '{}',
+                    '{}',
+                    true,
+                    false,
+                    embedColor || null
                 ]
             );
+
             return { success: true, id: result.id };
         } catch (error) {
             console.error('❌ Error creating community giveaway:', error);
