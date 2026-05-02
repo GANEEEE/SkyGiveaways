@@ -306,7 +306,7 @@ function getTemplateData(templateName) {
                 [GAMER_3_ID]: 8,
                 [GAMER_4_ID]: 10
             },
-            imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
+            imageUrl: 'https://i.ibb.co/SX4vwFT8/Formal-Main.png'
         },
         elite: {
             title: 'Sky Royale Giveaway',
@@ -322,7 +322,7 @@ function getTemplateData(templateName) {
                 ]
             },
             multiplier: { [GAMER_5_ID]: 5, [TIER_5_ID]: 10 },
-            imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
+            imageUrl: 'https://i.ibb.co/SX4vwFT8/Formal-Main.png'
         },
         // ===== SKYWELL: زرار واحد =====
         skywell: {
@@ -342,7 +342,7 @@ function getTemplateData(templateName) {
                 [SKYWELL_LVL4_ID]: 8,
                 [SKYWELL_LVL5_ID]: 10
             },
-            imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140079833228/GIFT_CARD___2.png?ex=69d781f7&is=69d63077&hm=3fee94eaea5ec7f635415d55e6f21cd36a142afc25860c0f9c0a1675da56280e&'
+            imageUrl: 'https://i.ibb.co/SX4vwFT8/Formal-Main.png'
         }
     };
 

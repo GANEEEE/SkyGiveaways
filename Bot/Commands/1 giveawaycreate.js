@@ -907,7 +907,7 @@ module.exports = {
                     ]
                 },
                 multiplier: { [TIER_3_ROLE_ID]: 2 },
-                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140725624852/GIFT_CARD_5_2.png?ex=69e7fcb7&is=69e6ab37&hm=ecbef5f5e40447b16d9b5ce491c43c911ba28e6de7bdba3237539e41dca2a9c9&'
+                imageUrl: 'https://i.ibb.co/SX4vwFT8/Formal-Main.png'
             },
             // ===== VIP: زرار واحد (SINGLE) =====
             vip: {
@@ -929,7 +929,7 @@ module.exports = {
                     [GAMER_3_ID]: 8,
                     [GAMER_4_ID]: 10
                 },
-                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140725624852/GIFT_CARD_5_2.png?ex=69e7fcb7&is=69e6ab37&hm=ecbef5f5e40447b16d9b5ce491c43c911ba28e6de7bdba3237539e41dca2a9c9&'
+                imageUrl: 'https://i.ibb.co/SX4vwFT8/Formal-Main.png'
             },
             elite: {
                 title: 'Sky Royale Giveaway',
@@ -945,7 +945,7 @@ module.exports = {
                     ]
                 },
                 multiplier: { [GAMER_5_ID]: 5, [TIER_5_ID]: 10 },
-                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140725624852/GIFT_CARD_5_2.png?ex=69e7fcb7&is=69e6ab37&hm=ecbef5f5e40447b16d9b5ce491c43c911ba28e6de7bdba3237539e41dca2a9c9&'
+                imageUrl: 'https://i.ibb.co/SX4vwFT8/Formal-Main.png'
             },
             // ===== SKYWELL: زرار واحد بدل 5 =====
             skywell: {
@@ -1458,10 +1458,7 @@ module.exports = {
                 return this.safeReply(interaction, { content: '❌ Giveaway no longer active', flags: 64 });
             }
 
-            const existingEntry = leaveType === 'ALL'
-                ? null
-                : await dbManager.getParticipantByType(giveawayCode, interaction.user.id, leaveType);
-
+            const existingEntry = await dbManager.getParticipantByType(giveawayCode, interaction.user.id, leaveType);
             const result = leaveType === 'ALL'
                 ? await dbManager.removeParticipant(giveawayCode, interaction.user.id)
                 : await dbManager.removeParticipant(giveawayCode, interaction.user.id, leaveType);
@@ -1479,9 +1476,17 @@ module.exports = {
             const updated = this.updateGiveawayMessage(config, endsAt, giveawayCode, host, result.entries);
             await this._editMainMessage(interaction.client, giveaway.channel_id, giveaway.message_id, updated);
 
-            const leaveName = leaveType === 'ALL'
-                ? 'all entries'
-                : existingEntry?.prizeLabel || this.getPrizeLabelFromConfig(leaveType, config, giveaway.entries, interaction.user.id);
+            // ✅ هنا التعديل
+            const isSingleButton = config.entryValues?.buttons?.length === 1;
+            let leaveName = '';
+
+            if (leaveType === 'ALL') {
+                leaveName = 'all entries';
+            } else if (isSingleButton) {
+                leaveName = 'the giveaway';
+            } else {
+                leaveName = existingEntry?.prizeLabel || this.getPrizeLabelFromConfig(leaveType, config, giveaway.entries, interaction.user.id);
+            }
 
             return this.safeUpdate(interaction, {
                 embeds: [new EmbedBuilder().setColor('#00FF00').setDescription(`✅ You left **${leaveName}**`)],
@@ -1573,8 +1578,14 @@ module.exports = {
             const updated = this.updateGiveawayMessage(config, endsAt, giveawayCode, host, joinRes.entries);
             await this._editMainMessage(interaction.client, giveaway.channel_id, giveaway.message_id, updated);
 
+            // ✅ هنا التعديل
+            const isSingleButton = config.entryValues?.buttons?.length === 1;
+            const joinedMessage = isSingleButton
+                ? `✅ Purchased **${needed}** messages (cost: **${purchase.cost}** 🪙)\nYou joined **the giveaway**!`
+                : `✅ Purchased **${needed}** messages (cost: **${purchase.cost}** 🪙)\nYou joined **${prizeLabel}**!`;
+
             return this.safeUpdate(interaction, {
-                embeds: [new EmbedBuilder().setColor('#00FF00').setDescription(`✅ Purchased **${needed}** messages (cost: **${purchase.cost}** 🪙)\nYou joined **${prizeLabel}**!`)],
+                embeds: [new EmbedBuilder().setColor('#00FF00').setDescription(joinedMessage)],
                 components: [this.buildLeaveButton(giveawayCode, userId, entryType)]
             });
         }
@@ -1636,8 +1647,15 @@ module.exports = {
             // ===== أولاً: فحص هل هو مشترك بالفعل؟ =====
             const existingEntry = await dbManager.getParticipantByType(giveawayCode, interaction.user.id, entryType);
             if (existingEntry) {
+                // هل هو جيف أواي بزرار واحد فقط؟
+                const isSingleButton = config.entryValues?.buttons?.length === 1;
+
+                const alreadyMessage = isSingleButton
+                    ? `⚠️ You are already in **the giveaway**`
+                    : `⚠️ You are already in **${existingEntry.prizeLabel || entryType}**`;
+
                 return this.safeReply(interaction, {
-                    embeds: [new EmbedBuilder().setColor('#FFA500').setDescription(`⚠️ You are already in **${existingEntry.prizeLabel || entryType}**`)],
+                    embeds: [new EmbedBuilder().setColor('#FFA500').setDescription(alreadyMessage)],
                     components: [this.buildLeaveButton(giveawayCode, interaction.user.id, entryType)],
                     flags: 64
                 });
@@ -1801,8 +1819,14 @@ module.exports = {
             const updated = this.updateGiveawayMessage(config, endsAt, giveawayCode, host, addResult.entries);
             await this._editMainMessage(interaction.client, giveaway.channel_id, giveaway.message_id, updated);
 
+            // ✅ تعديل رسالة التأكيد هنا
+            const isSingleButton = config.entryValues?.buttons?.length === 1;
+            const joinedMessage = isSingleButton 
+                ? `✅ You joined **the giveaway**!\n-# Good luck`
+                : `✅ You joined **${prizeLabel}**!\n-# Good luck`;
+
             return this.safeReply(interaction, {
-                embeds: [new EmbedBuilder().setColor('#00FF00').setDescription(`✅ You joined **${prizeLabel}**!\n-# Good luck`)],
+                embeds: [new EmbedBuilder().setColor('#00FF00').setDescription(joinedMessage)],
                 components: [this.buildLeaveButton(giveawayCode, interaction.user.id, entryType)],
                 flags: 64
             });
