@@ -278,9 +278,9 @@ function getTemplateData(templateName) {
             entryValues: {
                 period: 'daily',
                 buttons: [
-                    { type: 'RN', label: 'Random Key', min: 10, max: 15 },
-                    { type: 'GCS', label: 'Special Gift Card', min: 20, max: 25 },
-                    { type: 'GCD', label: 'Discord Gift Card', min: 30, max: 35 }
+                    { type: 'RN', label: 'Mystery Key', min: 10, max: 15 },
+                    { type: 'GCS', label: '5$ Steam GC', min: 20, max: 25 },
+                    { type: 'GCD', label: '5$ Steam GC+', min: 30, max: 35 }
                 ]
             },
             multiplier: { [TIER_3_ROLE_ID]: 2 },

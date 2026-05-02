@@ -901,9 +901,9 @@ module.exports = {
                 entryValues: {
                     period: 'daily',
                     buttons: [
-                        { type: 'RN', label: 'Random Key', min: 5, max: 10 },
-                        { type: 'GCS', label: 'Special Gift Card', min: 10, max: 15 },
-                        { type: 'GCD', label: 'Discord Gift Card', min: 15, max: 25 }
+                        { type: 'RN', label: 'Mystery Key', min: 5, max: 10 },
+                        { type: 'GCS', label: '5$ Steam GC', min: 10, max: 15 },
+                        { type: 'GCD', label: '5$ Steam GC+', min: 15, max: 25 }
                     ]
                 },
                 multiplier: { [TIER_3_ROLE_ID]: 2 },
@@ -965,7 +965,7 @@ module.exports = {
                     [SKYWELL_LVL4_ID]: 8,
                     [SKYWELL_LVL5_ID]: 10
                 },
-                imageUrl: 'https://cdn.discordapp.com/attachments/1391115389718761565/1483958140725624852/GIFT_CARD_5_2.png?ex=69e7fcb7&is=69e6ab37&hm=ecbef5f5e40447b16d9b5ce491c43c911ba28e6de7bdba3237539e41dca2a9c9&'
+                imageUrl: 'https://i.ibb.co/SX4vwFT8/Formal-Main.png'
             }
         };
 
