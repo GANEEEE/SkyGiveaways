@@ -285,10 +285,10 @@ function buildDescriptionFromEntryValues(
     reqRoleMode = 'n',
     bypassRoleMode = 'n'
 ) {
-    const lines = [`## ${title}`];
+    const lines = [`# ${title}`];
 
     if (extraDescription?.trim()) {
-        lines.push('', extraDescription.trim());
+        lines.push('', `### ${extraDescription.trim()}`);
     }
 
     const blacklistText = banRoleIds.length ? banRoleIds.map(id => `<@&${id}>`).join(', ') : 'None';
@@ -383,6 +383,174 @@ async function restoreScheduledGiveaways(client) {
     } catch (error) {
         console.error('❌ Restore error:', error);
     }
+}
+
+// ========== PARTICIPANTS LIST FUNCTIONS ==========
+
+async function buildParticipantsEmbed(giveawayCode, entries, page = 1, itemsPerPage = 10, guildIconURL = null, currentUserId = null, giveawayTitle = 'Giveaway') {
+    const participantsList = Object.values(entries || {});
+
+    if (!participantsList.length) {
+        return {
+            embed: new EmbedBuilder()
+                .setColor(0xED4245)
+                .setTitle(`${giveawayTitle} Participants`)
+                .setDescription('❌ No participants yet!')
+                .setFooter({
+                    text: `Total Participants: 0`,
+                    iconURL: guildIconURL
+                }),
+            totalPages: 0,
+            currentPage: page
+        };
+    }
+
+    const userMap = new Map();
+
+    for (const entry of participantsList) {
+        if (!userMap.has(entry.userId)) {
+            userMap.set(entry.userId, {
+                userId: entry.userId,
+                username: entry.username,
+                entries: [],
+                totalEntries: 0,
+                prizesCount: 0
+            });
+        }
+
+        const userData = userMap.get(entry.userId);
+        userData.entries.push(entry);
+        userData.totalEntries += entry.weight || 1;
+
+        const uniquePrizes = new Set(userData.entries.map(e => e.prizeLabel || e.type));
+        userData.prizesCount = uniquePrizes.size;
+    }
+
+    const usersArray = Array.from(userMap.values());
+    const totalPages = Math.ceil(usersArray.length / itemsPerPage);
+    const validPage = Math.min(Math.max(1, page), totalPages || 1);
+    const startIndex = (validPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const pageUsers = usersArray.slice(startIndex, endIndex);
+
+    let description = '';
+    let counter = startIndex + 1;
+
+    // ===== Your Status section =====
+    let yourStatusText = '';
+    if (currentUserId) {
+        const currentUserData = userMap.get(currentUserId);
+        if (currentUserData) {
+            const entriesText = currentUserData.totalEntries === 1 ? '**1** entry' : `**${currentUserData.totalEntries}** entries`;
+
+            if (currentUserData.prizesCount > 1) {
+                yourStatusText = `• <@${currentUserId}> (${entriesText} - Joined ${currentUserData.prizesCount} Giveaways)\n\n`;
+            } else {
+                const prizeName = currentUserData.entries[0]?.prizeLabel || currentUserData.entries[0]?.type || 'Giveaway';
+                const isSingle = (prizeName === 'SINGLE' || prizeName === 'the giveaway' || prizeName === 'Join');
+
+                if (isSingle) {
+                    yourStatusText = `• <@${currentUserId}> (${entriesText})\n\n`;
+                } else {
+                    yourStatusText = `• <@${currentUserId}> (${entriesText} - ${prizeName})\n\n`;
+                }
+            }
+        } else {
+            yourStatusText = `❌ You haven't joined this giveaway yet!\n\n`;
+        }
+    }
+
+    // ===== باقي المشاركين (Username فقط، من غير Mention) =====
+    for (const user of pageUsers) {
+        const usernameDisplay = user.username || `User${user.userId}`;
+        const entriesText = user.totalEntries === 1 ? '**1** entry' : `**${user.totalEntries}** entries`;
+
+        if (user.prizesCount > 1) {
+            description += `${counter}. **${usernameDisplay}** (${entriesText} - Joined ${user.prizesCount} Giveaways)\n`;
+        } else {
+            const prizeName = user.entries[0]?.prizeLabel || user.entries[0]?.type || 'Giveaway';
+            const isSingle = (prizeName === 'SINGLE' || prizeName === 'the giveaway' || prizeName === 'Join');
+
+            if (isSingle) {
+                description += `${counter}. **${usernameDisplay}** (${entriesText})\n`;
+            } else {
+                description += `${counter}. **${usernameDisplay}** (${entriesText} - ${prizeName})\n`;
+            }
+        }
+        counter++;
+    }
+
+    const embed = new EmbedBuilder()
+        .setColor(0x0073ff)
+        .setTitle(`${giveawayTitle} Participants`)
+        .setDescription((yourStatusText || '') + (description || 'No participants to display'))
+        .setFooter({
+            text: `Total Participants: ${usersArray.length}`,
+            iconURL: guildIconURL
+        })
+
+    return { embed, totalPages, currentPage: validPage, usersArray };
+}
+
+function buildParticipantsButtons(giveawayCode, currentPage, totalPages) {
+    const row = new ActionRowBuilder();
+
+    row.addComponents(
+        new ButtonBuilder()
+            .setCustomId(`giveaway_participants_${giveawayCode}_prev_${currentPage}`)
+            .setLabel('◀ Previous')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(currentPage <= 1)
+    );
+
+    row.addComponents(
+        new ButtonBuilder()
+            .setCustomId(`giveaway_participants_${giveawayCode}_refresh_${currentPage}`)
+            .setLabel(`${currentPage}/${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true)
+    );
+
+    row.addComponents(
+        new ButtonBuilder()
+            .setCustomId(`giveaway_participants_${giveawayCode}_next_${currentPage}`)
+            .setLabel('Next ▶')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(currentPage >= totalPages)
+    );
+
+    return row;
+}
+
+async function handleParticipants(interaction, giveawayCode, page = 1) {
+    const giveaway = await dbManager.getGiveawayByCode(giveawayCode);
+    if (!giveaway) {
+        return interaction.reply({
+            embeds: [new EmbedBuilder().setColor(0xED4245).setDescription('❌ Giveaway not found')],
+            flags: 64
+        });
+    }
+
+    const entries = giveaway.entries || {};
+    const guildIconURL = interaction.guild?.iconURL() || null;
+    const currentUserId = interaction.user.id;
+    const giveawayTitle = giveaway.title || 'Giveaway';
+
+    const { embed, totalPages, currentPage } = await buildParticipantsEmbed(
+        giveawayCode, entries, page, 10, guildIconURL, currentUserId, giveawayTitle
+    );
+
+    if (totalPages === 0) {
+        return interaction.reply({ embeds: [embed], flags: 64 });
+    }
+
+    const row = buildParticipantsButtons(giveawayCode, currentPage, totalPages);
+
+    return interaction.reply({
+        embeds: [embed],
+        components: [row],
+        flags: 64
+    });
 }
 
 // ========== COMPONENTS V2 BUILDERS ==========
@@ -1178,9 +1346,28 @@ module.exports = {
     },
 
     createGiveawayMessage(config, endsAt, giveawayCode, host, entries) {
+        const embed = this.createGiveawayEmbed(config, endsAt, giveawayCode, host, entries, false);
+        const buttonRows = this.buildButtonRow(config, giveawayCode, entries);
+
+        // أضف زرار Participants لو عدد الأزرار 3 أو أقل
+        const buttonsCount = config.entryValues?.buttons?.length || 0;
+
+        if (buttonsCount > 0 && buttonsCount <= 3) {
+            const firstRow = buttonRows[0];
+            if (firstRow) {
+                firstRow.addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`giveaway_participants_${giveawayCode}_view_1`)
+                        .setLabel('Participants')
+                        .setEmoji('👥')
+                        .setStyle(ButtonStyle.Secondary)
+                );
+            }
+        }
+
         return {
-            embeds: [this.createGiveawayEmbed(config, endsAt, giveawayCode, host, entries, false)],
-            components: this.buildButtonRow(config, giveawayCode, entries)
+            embeds: [embed],
+            components: buttonRows
         };
     },
 
@@ -1436,6 +1623,17 @@ module.exports = {
         if (interaction.replied || interaction.deferred) return;
 
         const { action, code: giveawayCode, rest } = parseCustomId(interaction.customId);
+
+        // Handle Participants button
+        if (action === 'participants') {
+            const parts = rest.split('_');
+            const subAction = parts[0];
+            const page = parseInt(parts[1], 10) || 1;
+
+            if (subAction === 'view' || subAction === 'prev' || subAction === 'next' || subAction === 'refresh') {
+                return handleParticipants(interaction, giveawayCode, page);
+            }
+        }
 
         if (action === 'preview') {
             return this.handlePreview(interaction, giveawayCode, rest);
@@ -1822,8 +2020,8 @@ module.exports = {
             // ✅ تعديل رسالة التأكيد هنا
             const isSingleButton = config.entryValues?.buttons?.length === 1;
             const joinedMessage = isSingleButton 
-                ? `✅ You joined **the giveaway**!\n-# Good luck`
-                : `✅ You joined **${prizeLabel}**!\n-# Good luck`;
+                ? `✅ You joined **the giveaway**, Good luck!`
+                : `✅ You joined **${prizeLabel}**, Good luck!`;
 
             return this.safeReply(interaction, {
                 embeds: [new EmbedBuilder().setColor('#00FF00').setDescription(joinedMessage)],

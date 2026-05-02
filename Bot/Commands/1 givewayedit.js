@@ -200,10 +200,10 @@ function buildDescriptionFromEntryValues(
     reqRoleMode = 'n',
     bypassRoleMode = 'n'
 ) {
-    const lines = [`## ${title}`];
+    const lines = [`# ${title}`];
 
     if (extraDescription?.trim()) {
-        lines.push('', extraDescription.trim());
+        lines.push('', `### ${extraDescription.trim()}`);
     }
 
     const blacklistText = banRoleIds.length ? banRoleIds.map(id => `<@&${id}>`).join(', ') : 'None';

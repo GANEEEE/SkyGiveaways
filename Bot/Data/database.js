@@ -1519,7 +1519,7 @@ bypass_role_mode TEXT DEFAULT 'n',
 
             let weight = customWeight || 1;
             if (entryType === 'bonus') weight = 2;
-            else if (entryType === 'GCD') weight = 2;
+            //else if (entryType === 'GCD') weight = 2;
 
             if (entryType !== 'bonus' && entries[compositeKey]) {
                 return { success: false, error: 'Already joined this entry type', code: 'ALREADY_JOINED_TYPE' };
