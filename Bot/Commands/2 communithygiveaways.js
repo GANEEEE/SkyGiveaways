@@ -576,20 +576,8 @@ module.exports = {
 
     createGiveawayMessage(gameName, gameLink, platform, endsAt, winnersCount, note, reqRole, imageUrl, giveawayCode, user, participantsCount, messageReqType, messageReqAmount, color = DEFAULT_COLOR) {
         const embed = this.createGiveawayEmbed(
-            gameName,
-            gameLink,
-            platform,
-            endsAt,
-            winnersCount,
-            note,
-            reqRole,
-            messageReqType,
-            messageReqAmount,
-            imageUrl,
-            user,
-            giveawayCode,
-            color,
-            participantsCount
+            gameName, gameLink, platform, endsAt, winnersCount, note, reqRole,
+            messageReqType, messageReqAmount, imageUrl, user, giveawayCode, color, participantsCount
         );
 
         const row = new ActionRowBuilder().addComponents(
@@ -597,7 +585,12 @@ module.exports = {
                 .setCustomId(`commgiveaway_join_${giveawayCode}`)
                 .setLabel(`Join (${participantsCount})`)
                 .setStyle(ButtonStyle.Success)
-                .setEmoji('🕊️')
+                .setEmoji('🕊️'),
+            new ButtonBuilder()
+                .setCustomId(`commgiveaway_participants_${giveawayCode}_view_1`)
+                .setLabel('Participants')
+                .setEmoji('👥')
+                .setStyle(ButtonStyle.Secondary)
         );
 
         return {
@@ -609,20 +602,10 @@ module.exports = {
 
     updateGiveawayMessage(gameName, gameLink, platform, endsAt, winnersCount, note, reqRoleId, imageUrl, giveawayCode, hostId, hostUsername, hostAvatar, participantsCount, messageReqType, messageReqAmount, color = DEFAULT_COLOR) {
         const embed = this.createGiveawayEmbed(
-            gameName,
-            gameLink,
-            platform,
-            endsAt,
-            winnersCount,
-            note,
-            reqRoleId ? { id: reqRoleId } : null,
-            messageReqType,
-            messageReqAmount,
-            imageUrl,
-            { username: hostUsername, displayAvatarURL: () => hostAvatar },
-            giveawayCode,
-            color,
-            participantsCount
+            gameName, gameLink, platform, endsAt, winnersCount, note,
+            reqRoleId ? { id: reqRoleId } : null, messageReqType, messageReqAmount,
+            imageUrl, { username: hostUsername, displayAvatarURL: () => hostAvatar },
+            giveawayCode, color, participantsCount
         );
 
         const row = new ActionRowBuilder().addComponents(
@@ -630,7 +613,12 @@ module.exports = {
                 .setCustomId(`commgiveaway_join_${giveawayCode}`)
                 .setLabel(`Join (${participantsCount})`)
                 .setStyle(ButtonStyle.Success)
-                .setEmoji('🕊️')
+                .setEmoji('🕊️'),
+            new ButtonBuilder()
+                .setCustomId(`commgiveaway_participants_${giveawayCode}_view_1`)
+                .setLabel('Participants')
+                .setEmoji('👥')
+                .setStyle(ButtonStyle.Secondary)
         );
 
         return {
@@ -719,8 +707,164 @@ module.exports = {
         };
     },
 
+    // ========== PARTICIPANTS SYSTEM ==========
+
+    buildParticipantsButton(giveawayCode, page = 1, totalPages = 1) {
+        const row = new ActionRowBuilder();
+
+        row.addComponents(
+            new ButtonBuilder()
+                .setCustomId(`commgiveaway_participants_${giveawayCode}_prev_${page}`)
+                .setLabel('◀ Previous')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(page <= 1)
+        );
+
+        row.addComponents(
+            new ButtonBuilder()
+                .setCustomId(`commgiveaway_participants_${giveawayCode}_refresh_${page}`)
+                .setLabel(`${page}/${totalPages}`)
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(true)
+        );
+
+        row.addComponents(
+            new ButtonBuilder()
+                .setCustomId(`commgiveaway_participants_${giveawayCode}_next_${page}`)
+                .setLabel('Next ▶')
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(page >= totalPages)
+        );
+
+        return row;
+    },
+
+    async buildParticipantsEmbed(giveawayCode, participants, page = 1, itemsPerPage = 10, guildIconURL = null, currentUserId = null, client, giveawayTitle = 'Giveaway', embedColor = 0x0073ff) {
+        if (!participants || !participants.length) {
+            return {
+                embed: new EmbedBuilder()
+                    .setColor(embedColor)
+                    .setTitle(`${giveawayTitle} Participants`)
+                    .setDescription('❌ No participants yet!')
+                    .setFooter({
+                        text: `Total: 0`,
+                        iconURL: guildIconURL
+                    }),
+                totalPages: 0,
+                currentPage: page
+            };
+        }
+
+        // جلب أسماء المستخدمين
+        const participantsWithNames = [];
+        for (const userId of participants) {
+            try {
+                const user = await client.users.fetch(userId).catch(() => null);
+                participantsWithNames.push({
+                    userId: userId,
+                    username: user?.username || `Unknown User`
+                });
+            } catch (err) {
+                participantsWithNames.push({
+                    userId: userId,
+                    username: `Unknown User`
+                });
+            }
+        }
+
+        const totalPages = Math.ceil(participantsWithNames.length / itemsPerPage);
+        const validPage = Math.min(Math.max(1, page), totalPages || 1);
+        const startIndex = (validPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        const pageUsers = participantsWithNames.slice(startIndex, endIndex);
+
+        let description = '';
+        let counter = startIndex + 1;
+
+        // Your Status section
+        let yourStatusText = '';
+        if (currentUserId) {
+            const isParticipant = participants.includes(currentUserId);
+            const userIndex = participants.findIndex(id => id === currentUserId);
+            if (isParticipant) {
+                yourStatusText = `✅ **You are in the giveaway!**\n\n`;
+            } else {
+                yourStatusText = `❌ You haven't joined this giveaway yet!\n\n`;
+            }
+        }
+
+        // Participants list
+        for (const user of pageUsers) {
+            description += `${counter}. **${user.username}**\n`;
+            counter++;
+        }
+
+        const embed = new EmbedBuilder()
+            .setColor(embedColor)
+            .setTitle(`${giveawayTitle} Participants`)
+            .setDescription((yourStatusText || '') + (description || 'No participants to display'))
+            .setFooter({
+                text: `Total Participants: ${participantsWithNames.length}`,
+                iconURL: guildIconURL
+            })
+
+        return { embed, totalPages, currentPage: validPage };
+    },
+
+    async handleParticipants(interaction, giveawayCode, page = 1) {
+        const giveaway = await dbManager.getActiveCommunityGiveawayByCode(giveawayCode);
+        if (!giveaway) {
+            return interaction.reply({
+                embeds: [this.buildReplyEmbed(0xED4245, '❌ Giveaway not found')],
+                ephemeral: true
+            });
+        }
+
+        const participants = giveaway.participants || [];
+        const guildIconURL = interaction.guild?.iconURL() || null;
+        const currentUserId = interaction.user.id;
+
+        // جلب اسم اللعبة ولون الجيفاواي
+        const giveawayTitle = giveaway.game_name || 'Giveaway';
+        const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color, 10) : DEFAULT_COLOR;
+
+        const { embed, totalPages, currentPage } = await this.buildParticipantsEmbed(
+            giveawayCode,
+            participants,
+            page,
+            10,
+            guildIconURL,
+            currentUserId,
+            interaction.client,
+            giveawayTitle,
+            embedColor
+        );
+
+        if (totalPages === 0) {
+            return interaction.reply({ embeds: [embed], ephemeral: true });
+        }
+
+        const row = this.buildParticipantsButton(giveawayCode, currentPage, totalPages);
+
+        return interaction.reply({
+            embeds: [embed],
+            components: [row],
+            ephemeral: true
+        });
+    },
+
     async buttonHandler(interaction) {
         const customId = interaction.customId;
+
+        // ✅ معالج زر Participants (حطه في الأول)
+        if (customId.startsWith('commgiveaway_participants_')) {
+            const parts = customId.split('_');
+            const giveawayCode = parts[2];
+            const subAction = parts[3];
+            let page = parseInt(parts[4], 10) || 1;
+
+            return this.handleParticipants(interaction, giveawayCode, page);
+        }
 
         if (customId.startsWith('commgiveaway_preview_')) {
             const parts = customId.split('_');
