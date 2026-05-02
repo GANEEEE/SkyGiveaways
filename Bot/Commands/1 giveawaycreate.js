@@ -1350,7 +1350,7 @@ module.exports = {
         const buttonRows = this.buildButtonRow(config, giveawayCode, entries);
 
         // أضف زرار Participants لو عدد الأزرار 3 أو أقل
-        const buttonsCount = config.entryValues?.buttons?.length || 0;
+        /*const buttonsCount = config.entryValues?.buttons?.length || 0;
 
         if (buttonsCount > 0 && buttonsCount <= 3) {
             const firstRow = buttonRows[0];
@@ -1363,7 +1363,7 @@ module.exports = {
                         .setStyle(ButtonStyle.Secondary)
                 );
             }
-        }
+        }*/
 
         return {
             embeds: [embed],
