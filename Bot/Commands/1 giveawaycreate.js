@@ -1154,6 +1154,8 @@ module.exports = {
                         { type: 'SINGLE', label: 'Join' }
                     ]
                 },
+                requiredRoles: [GAMER_1_ID, BOOSTER_ROLE_ID],
+                requiredRoleMode: 'n',
                 multiplier: {
                     [GAMER_1_ID]: 2,
                     [GAMER_2_ID]: 4,
@@ -1247,8 +1249,22 @@ module.exports = {
         if (isSingleButton && !finalWinners) finalWinners = 1;
 
         const finalMultiplier = customMultiplier || templateData.multiplier || null;
-        const finalReqMode = reqRoleMode || 'n';
-        const finalBypassMode = bypassRoleMode || 'n';
+
+        // ✅ دمج required roles من template مع اللي جاي من الأمر
+        const finalReqRoleIds = [...new Set([
+            ...(reqRoleIds || []),
+            ...(templateData.requiredRoles || [])
+        ])];
+
+        const finalReqRoleMode = reqRoleMode || templateData.requiredRoleMode || 'n';
+
+        // ✅ دمج bypass roles
+        const finalBypassRoleIds = [...new Set([
+            ...(bypassRoleIds || []),
+            ...(templateData.bypassRoles || [])
+        ])];
+
+        const finalBypassMode = bypassRoleMode || templateData.bypassRoleMode || 'n';
 
         return {
             title: finalTitle,
@@ -1256,22 +1272,22 @@ module.exports = {
                 finalEntryValues,
                 finalTitle,
                 description || '',
-                reqRoleIds || [],
-                bypassRoleIds || [],
+                finalReqRoleIds,      // ✅ المعدل
+                finalBypassRoleIds,   // ✅ المعدل
                 finalMultiplier,
                 banRoleIds || [],
-                finalReqMode,
-                finalBypassMode
+                finalReqRoleMode,     // ✅ المعدل
+                finalBypassMode       // ✅ المعدل
             ),
             color: embedColor ?? templateData.color,
             duration: duration || '7d',
             winnersCount: finalWinners,
             entryValues: finalEntryValues,
             multiplier: finalMultiplier,
-            bypassRoleIds: bypassRoleIds || [],
+            bypassRoleIds: finalBypassRoleIds,
             bypassRoleMode: finalBypassMode,
-            reqRoleIds: reqRoleIds || [],
-            reqRoleMode: finalReqMode,
+            reqRoleIds: finalReqRoleIds,
+            reqRoleMode: finalReqRoleMode,
             banRoleIds: banRoleIds || [],
             host,
             imageUrl: imageUrl || templateData.imageUrl || null
