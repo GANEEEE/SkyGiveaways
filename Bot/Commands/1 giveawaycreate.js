@@ -233,6 +233,14 @@ function buildExtraEntriesLines(multiplier) {
         .map(([roleId, weight]) => `<@&${roleId}>: **${weight}** entries`);
 
     if (!items.length) return [];
+
+    // ✅ رتب من الأصغر للأكبر (ascending)
+    items.sort((a, b) => {
+        const weightA = parseInt(a.match(/\*\*(\d+)\*\*/)?.[1] || 0);
+        const weightB = parseInt(b.match(/\*\*(\d+)\*\*/)?.[1] || 0);
+        return weightA - weightB;  // الفرق هنا: weightA - weightB
+    });
+
     return ['**Extra Entries:**', ...items.map(item => `• ${item}`)];
 }
 
