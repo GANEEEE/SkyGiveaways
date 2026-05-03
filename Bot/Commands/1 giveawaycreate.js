@@ -298,14 +298,14 @@ function buildDescriptionFromEntryValues(
 
     if (reqRoleIds.length) {
         const reqModeLabel = (reqRoleIds.length > 1)
-            ? (reqRoleMode === 'y' ? ' `all`' : ' `any`')
+            ? (reqRoleMode === 'y' ? ' all' : ' any')
             : '';
         lines.push(`Required${reqModeLabel}: ${reqRoleIds.map(id => `<@&${id}>`).join(', ')}`);
     }
 
     if (bypassRoleIds.length) {
         const bypassModeLabel = (bypassRoleIds.length > 1)
-            ? (bypassRoleMode === 'y' ? ' `all`' : ' `any`')
+            ? (bypassRoleMode === 'y' ? ' all' : ' any')
             : '';
         lines.push(`Bypass${bypassModeLabel}: ${bypassRoleIds.map(id => `<@&${id}>`).join(', ')}`);
     }
