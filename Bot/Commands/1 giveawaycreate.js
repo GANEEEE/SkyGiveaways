@@ -387,6 +387,9 @@ async function restoreScheduledGiveaways(client) {
 
 // ========== PARTICIPANTS LIST FUNCTIONS ==========
 
+// Session store for ephemeral participants messages
+const participantSessions = new Map();
+
 async function buildParticipantsEmbed(giveawayCode, entries, page = 1, itemsPerPage = 10, guildIconURL = null, currentUserId = null, giveawayTitle = 'Giveaway') {
     const participantsList = Object.values(entries || {});
 
@@ -413,16 +416,15 @@ async function buildParticipantsEmbed(giveawayCode, entries, page = 1, itemsPerP
                 userId: entry.userId,
                 username: entry.username,
                 entries: [],
-                totalWeight: 0,      // الوزن (عدد الـ entries)
+                totalWeight: 0,
                 prizesCount: 0,
-                joinedCount: 0       // عدد الجيف أوايز اللي دخلها
+                joinedCount: 0
             });
         }
 
         const userData = userMap.get(entry.userId);
         userData.entries.push(entry);
 
-        // الوزن = entry.weight (ده عدد الـ entries بتاعة الشخص في الجيف أواي ده)
         if (userData.totalWeight === 0) {
             userData.totalWeight = entry.weight || 1;
         }
@@ -432,7 +434,6 @@ async function buildParticipantsEmbed(giveawayCode, entries, page = 1, itemsPerP
         userData.prizesCount = uniquePrizes.size;
     }
 
-    // ترتيب المستخدمين حسب أعلى totalWeight
     const usersArray = Array.from(userMap.values()).sort((a, b) => b.totalWeight - a.totalWeight);
 
     const totalPages = Math.ceil(usersArray.length / itemsPerPage);
@@ -444,25 +445,24 @@ async function buildParticipantsEmbed(giveawayCode, entries, page = 1, itemsPerP
     let description = '';
     let counter = startIndex + 1;
 
-    // ===== Your Status section =====
     let yourStatusText = '';
     if (currentUserId) {
         const currentUserData = userMap.get(currentUserId);
         if (currentUserData) {
             const entryWeight = currentUserData.totalWeight;
-            const weightText = entryWeight === 1 ? '1 entry' : `${entryWeight} entries`;
+            const weightText = entryWeight === 1 ? '**1** entry' : `**${entryWeight}** entries`;
             const joinedCount = currentUserData.joinedCount;
 
             if (currentUserData.prizesCount > 1) {
-                yourStatusText = `• <@${currentUserId}> (${weightText} - Joined ${joinedCount} Giveaways)\n\n`;
+                yourStatusText = `<:Done:1468054867502174229> <@${currentUserId}> (${weightText} - Joined ${joinedCount} Giveaways)\n\n`;
             } else {
                 const prizeName = currentUserData.entries[0]?.prizeLabel || currentUserData.entries[0]?.type || 'Giveaway';
                 const isSingle = (prizeName === 'SINGLE' || prizeName === 'the giveaway' || prizeName === 'Join');
 
                 if (isSingle) {
-                    yourStatusText = `• <@${currentUserId}> (${weightText})\n\n`;
+                    yourStatusText = `<:Done:1468054867502174229> <@${currentUserId}> (${weightText})\n\n`;
                 } else {
-                    yourStatusText = `• <@${currentUserId}> (${weightText} - ${prizeName})\n\n`;
+                    yourStatusText = `<:Done:1468054867502174229> <@${currentUserId}> (${weightText} - ${prizeName})\n\n`;
                 }
             }
         } else {
@@ -470,11 +470,10 @@ async function buildParticipantsEmbed(giveawayCode, entries, page = 1, itemsPerP
         }
     }
 
-    // ===== باقي المشاركين (مع المستخدم الحالي برضه) =====
     for (const user of pageUsers) {
         const usernameDisplay = user.username || `User${user.userId}`;
         const entryWeight = user.totalWeight;
-        const weightText = entryWeight === 1 ? '1 entry' : `${entryWeight} entries`;
+        const weightText = entryWeight === 1 ? '**1** entry' : `**${entryWeight}** entries`;
         const joinedCount = user.joinedCount;
 
         if (user.prizesCount > 1) {
@@ -499,7 +498,7 @@ async function buildParticipantsEmbed(giveawayCode, entries, page = 1, itemsPerP
         .setFooter({
             text: `Total Participants: ${usersArray.length}`,
             iconURL: guildIconURL
-        })
+        });
 
     return { embed, totalPages, currentPage: validPage, usersArray };
 }
@@ -534,13 +533,13 @@ function buildParticipantsButtons(giveawayCode, currentPage, totalPages) {
     return row;
 }
 
-// ✅ الكود الجديد
+// دالة العرض الأولي (بترسل رسالة Ephemeral جديدة)
 async function handleParticipants(interaction, giveawayCode, page = 1) {
     const giveaway = await dbManager.getGiveawayByCode(giveawayCode);
     if (!giveaway) {
-        return interaction.update({  // تغيير من reply ل update
+        return interaction.reply({
             embeds: [new EmbedBuilder().setColor(0xED4245).setDescription('❌ Giveaway not found')],
-            components: []  // إضافة components فارغة
+            ephemeral: true
         });
     }
 
@@ -554,15 +553,65 @@ async function handleParticipants(interaction, giveawayCode, page = 1) {
     );
 
     if (totalPages === 0) {
-        return interaction.update({  // تغيير من reply ل update
+        return interaction.reply({
             embeds: [embed],
-            components: []
+            ephemeral: true
         });
     }
 
     const row = buildParticipantsButtons(giveawayCode, currentPage, totalPages);
 
-    return interaction.update({  // تغيير من reply ل update
+    // حفظ الجلسة
+    const sessionId = `${interaction.user.id}_${giveawayCode}`;
+    participantSessions.set(sessionId, {
+        giveawayCode,
+        currentPage,
+        totalPages
+    });
+
+    return interaction.reply({
+        embeds: [embed],
+        components: [row],
+        ephemeral: true
+    });
+}
+
+// دالة التنقل بين الصفحات (بتعدل الرسالة الموجودة)
+async function handleParticipantsNavigation(interaction, giveawayCode, action, currentPage) {
+    let newPage = currentPage;
+
+    if (action === 'next') newPage = currentPage + 1;
+    if (action === 'prev') newPage = currentPage - 1;
+    if (action === 'refresh') newPage = currentPage;
+
+    const giveaway = await dbManager.getGiveawayByCode(giveawayCode);
+    if (!giveaway) {
+        return interaction.update({
+            embeds: [new EmbedBuilder().setColor(0xED4245).setDescription('❌ Giveaway not found')],
+            components: []
+        });
+    }
+
+    const entries = giveaway.entries || {};
+    const guildIconURL = interaction.guild?.iconURL() || null;
+    const currentUserId = interaction.user.id;
+    const giveawayTitle = giveaway.title || 'Giveaway';
+
+    const { embed, totalPages, currentPage: newCurrentPage } = await buildParticipantsEmbed(
+        giveawayCode, entries, newPage, 10, guildIconURL, currentUserId, giveawayTitle
+    );
+
+    const row = buildParticipantsButtons(giveawayCode, newCurrentPage, totalPages);
+
+    // تحديث الجلسة
+    const sessionId = `${interaction.user.id}_${giveawayCode}`;
+    participantSessions.set(sessionId, {
+        giveawayCode,
+        currentPage: newCurrentPage,
+        totalPages
+    });
+
+    return interaction.update({
         embeds: [embed],
         components: [row]
     });
@@ -1645,9 +1694,14 @@ module.exports = {
             const subAction = parts[0];
             const page = parseInt(parts[1], 10) || 1;
 
-            if (subAction === 'view' || subAction === 'prev' || subAction === 'next' || subAction === 'refresh') {
-                await handleParticipants(interaction, giveawayCode, page);  // استخدم await
-                return;  // منع أي معالجة إضافية
+            if (subAction === 'view') {
+                // أول مرة - بعت رسالة Ephemeral جديدة
+                await handleParticipants(interaction, giveawayCode, page);
+                return;
+            } else if (subAction === 'prev' || subAction === 'next' || subAction === 'refresh') {
+                // تنقل بين الصفحات - عدل الرسالة الموجودة
+                await handleParticipantsNavigation(interaction, giveawayCode, subAction, page);
+                return;
             }
         }
 

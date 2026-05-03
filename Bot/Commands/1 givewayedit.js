@@ -603,11 +603,11 @@ module.exports = {
                         if (msg) {
                             const config  = buildConfigFromGiveaway(updatedGiveaway);
                             const endsAt  = new Date(updatedGiveaway.end_time);
-                            const hostUser = {
+                            const hostUser = await interaction.client.users.fetch(updatedGiveaway.host_id || DEFAULT_HOST_ID).catch(() => ({
                                 id: updatedGiveaway.host_id || DEFAULT_HOST_ID,
                                 username: updatedGiveaway.host_name || 'Host',
                                 displayAvatarURL: () => null
-                            };
+                            }));
                             const entries = updatedGiveaway.entries || {};
 
                             await msg.edit({

@@ -46,6 +46,7 @@ const COLOR_CHOICES = [
 ];
 
 const previewSessions = new Map();
+const participantSessions = new Map();
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -812,12 +813,13 @@ module.exports = {
     },
 
     // ✅ الكود الجديد
+    // دالة العرض الأولي (بترسل رسالة Ephemeral جديدة)
     async handleParticipants(interaction, giveawayCode, page = 1) {
         const giveaway = await dbManager.getActiveCommunityGiveawayByCode(giveawayCode);
         if (!giveaway) {
-            return interaction.update({  // ✅ تغيير من reply ل update
+            return interaction.reply({
                 embeds: [this.buildReplyEmbed(0xED4245, '❌ Giveaway not found')],
-                components: []  // ✅ إضافة components فارغة
+                ephemeral: true
             });
         }
 
@@ -841,15 +843,75 @@ module.exports = {
         );
 
         if (totalPages === 0) {
-            return interaction.update({  // ✅ تغيير من reply ل update
+            return interaction.reply({
                 embeds: [embed],
-                components: []
+                ephemeral: true
             });
         }
 
         const row = this.buildParticipantsButton(giveawayCode, currentPage, totalPages);
 
-        return interaction.update({  // ✅ تغيير من reply ل update
+        // حفظ الجلسة
+        const sessionId = `${interaction.user.id}_${giveawayCode}`;
+        participantSessions.set(sessionId, {
+            giveawayCode,
+            currentPage,
+            totalPages
+        });
+
+        return interaction.reply({
+            embeds: [embed],
+            components: [row],
+            ephemeral: true
+        });
+    },
+
+    // دالة التنقل بين الصفحات (بتعدل الرسالة الموجودة)
+    async handleParticipantsNavigation(interaction, giveawayCode, action, currentPage) {
+        let newPage = currentPage;
+
+        if (action === 'next') newPage = currentPage + 1;
+        if (action === 'prev') newPage = currentPage - 1;
+        if (action === 'refresh') newPage = currentPage;
+
+        const giveaway = await dbManager.getActiveCommunityGiveawayByCode(giveawayCode);
+        if (!giveaway) {
+            return interaction.update({
+                embeds: [this.buildReplyEmbed(0xED4245, '❌ Giveaway not found')],
+                components: []
+            });
+        }
+
+        const participants = giveaway.participants || [];
+        const guildIconURL = interaction.guild?.iconURL() || null;
+        const currentUserId = interaction.user.id;
+
+        const giveawayTitle = giveaway.game_name || 'Giveaway';
+        const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color, 10) : DEFAULT_COLOR;
+
+        const { embed, totalPages, currentPage: newCurrentPage } = await this.buildParticipantsEmbed(
+            giveawayCode,
+            participants,
+            newPage,
+            10,
+            guildIconURL,
+            currentUserId,
+            interaction.client,
+            giveawayTitle,
+            embedColor
+        );
+
+        const row = this.buildParticipantsButton(giveawayCode, newCurrentPage, totalPages);
+
+        // تحديث الجلسة
+        const sessionId = `${interaction.user.id}_${giveawayCode}`;
+        participantSessions.set(sessionId, {
+            giveawayCode,
+            currentPage: newCurrentPage,
+            totalPages
+        });
+
+        return interaction.update({
             embeds: [embed],
             components: [row]
         });
@@ -865,8 +927,15 @@ module.exports = {
             const subAction = parts[3];
             let page = parseInt(parts[4], 10) || 1;
 
-            await this.handleParticipants(interaction, giveawayCode, page);  // ✅ استخدم await
-            return;  // ✅ منع أي معالجة إضافية
+            if (subAction === 'view') {
+                // أول مرة - بعت رسالة Ephemeral جديدة
+                await this.handleParticipants(interaction, giveawayCode, page);
+                return;
+            } else if (subAction === 'prev' || subAction === 'next' || subAction === 'refresh') {
+                // تنقل بين الصفحات - عدل الرسالة الموجودة
+                await this.handleParticipantsNavigation(interaction, giveawayCode, subAction, page);
+                return;
+            }
         }
 
         if (customId.startsWith('commgiveaway_preview_')) {
