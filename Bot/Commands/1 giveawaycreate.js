@@ -300,7 +300,7 @@ function buildDescriptionFromEntryValues(
         const reqModeLabel = (reqRoleIds.length > 1)
             ? (reqRoleMode === 'y' ? ' `all`' : ' `any`')
             : '';
-        lines.push('', `Required${reqModeLabel}: ${reqRoleIds.map(id => `<@&${id}>`).join(', ')}`);
+        lines.push(`Required${reqModeLabel}: ${reqRoleIds.map(id => `<@&${id}>`).join(', ')}`);
     }
 
     if (bypassRoleIds.length) {
@@ -413,20 +413,28 @@ async function buildParticipantsEmbed(giveawayCode, entries, page = 1, itemsPerP
                 userId: entry.userId,
                 username: entry.username,
                 entries: [],
-                totalEntries: 0,
-                prizesCount: 0
+                totalWeight: 0,      // الوزن (عدد الـ entries)
+                prizesCount: 0,
+                joinedCount: 0       // عدد الجيف أوايز اللي دخلها
             });
         }
 
         const userData = userMap.get(entry.userId);
         userData.entries.push(entry);
-        userData.totalEntries += entry.weight || 1;
+
+        // الوزن = entry.weight (ده عدد الـ entries بتاعة الشخص في الجيف أواي ده)
+        if (userData.totalWeight === 0) {
+            userData.totalWeight = entry.weight || 1;
+        }
+        userData.joinedCount += 1;
 
         const uniquePrizes = new Set(userData.entries.map(e => e.prizeLabel || e.type));
         userData.prizesCount = uniquePrizes.size;
     }
 
-    const usersArray = Array.from(userMap.values());
+    // ترتيب المستخدمين حسب أعلى totalWeight
+    const usersArray = Array.from(userMap.values()).sort((a, b) => b.totalWeight - a.totalWeight);
+
     const totalPages = Math.ceil(usersArray.length / itemsPerPage);
     const validPage = Math.min(Math.max(1, page), totalPages || 1);
     const startIndex = (validPage - 1) * itemsPerPage;
@@ -441,18 +449,20 @@ async function buildParticipantsEmbed(giveawayCode, entries, page = 1, itemsPerP
     if (currentUserId) {
         const currentUserData = userMap.get(currentUserId);
         if (currentUserData) {
-            const entriesText = currentUserData.totalEntries === 1 ? '**1** entry' : `**${currentUserData.totalEntries}** entries`;
+            const entryWeight = currentUserData.totalWeight;
+            const weightText = entryWeight === 1 ? '1 entry' : `${entryWeight} entries`;
+            const joinedCount = currentUserData.joinedCount;
 
             if (currentUserData.prizesCount > 1) {
-                yourStatusText = `• <@${currentUserId}> (${entriesText} - Joined ${currentUserData.prizesCount} Giveaways)\n\n`;
+                yourStatusText = `• <@${currentUserId}> (${weightText} - Joined ${joinedCount} Giveaways)\n\n`;
             } else {
                 const prizeName = currentUserData.entries[0]?.prizeLabel || currentUserData.entries[0]?.type || 'Giveaway';
                 const isSingle = (prizeName === 'SINGLE' || prizeName === 'the giveaway' || prizeName === 'Join');
 
                 if (isSingle) {
-                    yourStatusText = `• <@${currentUserId}> (${entriesText})\n\n`;
+                    yourStatusText = `• <@${currentUserId}> (${weightText})\n\n`;
                 } else {
-                    yourStatusText = `• <@${currentUserId}> (${entriesText} - ${prizeName})\n\n`;
+                    yourStatusText = `• <@${currentUserId}> (${weightText} - ${prizeName})\n\n`;
                 }
             }
         } else {
@@ -460,21 +470,23 @@ async function buildParticipantsEmbed(giveawayCode, entries, page = 1, itemsPerP
         }
     }
 
-    // ===== باقي المشاركين (Username فقط، من غير Mention) =====
+    // ===== باقي المشاركين (مع المستخدم الحالي برضه) =====
     for (const user of pageUsers) {
         const usernameDisplay = user.username || `User${user.userId}`;
-        const entriesText = user.totalEntries === 1 ? '**1** entry' : `**${user.totalEntries}** entries`;
+        const entryWeight = user.totalWeight;
+        const weightText = entryWeight === 1 ? '1 entry' : `${entryWeight} entries`;
+        const joinedCount = user.joinedCount;
 
         if (user.prizesCount > 1) {
-            description += `${counter}. **${usernameDisplay}** (${entriesText} - Joined ${user.prizesCount} Giveaways)\n`;
+            description += `${counter}. **${usernameDisplay}** (${weightText} - Joined ${joinedCount} Giveaways)\n`;
         } else {
             const prizeName = user.entries[0]?.prizeLabel || user.entries[0]?.type || 'Giveaway';
             const isSingle = (prizeName === 'SINGLE' || prizeName === 'the giveaway' || prizeName === 'Join');
 
             if (isSingle) {
-                description += `${counter}. **${usernameDisplay}** (${entriesText})\n`;
+                description += `${counter}. **${usernameDisplay}** (${weightText})\n`;
             } else {
-                description += `${counter}. **${usernameDisplay}** (${entriesText} - ${prizeName})\n`;
+                description += `${counter}. **${usernameDisplay}** (${weightText} - ${prizeName})\n`;
             }
         }
         counter++;
@@ -1350,7 +1362,7 @@ module.exports = {
         const buttonRows = this.buildButtonRow(config, giveawayCode, entries);
 
         // أضف زرار Participants لو عدد الأزرار 3 أو أقل
-        /*const buttonsCount = config.entryValues?.buttons?.length || 0;
+        const buttonsCount = config.entryValues?.buttons?.length || 0;
 
         if (buttonsCount > 0 && buttonsCount <= 3) {
             const firstRow = buttonRows[0];
@@ -1363,7 +1375,7 @@ module.exports = {
                         .setStyle(ButtonStyle.Secondary)
                 );
             }
-        }*/
+        }
 
         return {
             embeds: [embed],
@@ -1965,26 +1977,27 @@ module.exports = {
             if (config.multiplier) {
                 const hasBooster = member.roles.cache.has(BOOSTER_ROLE_ID);
 
-                // نحدد أعلى Gamer role يملكها المستخدم (حسب الترتيب من الأقل للأعلى)
+                // الخطوة 1: دور الأول على أعلى رتبة Gamer (زي ما النظام شغال)
                 const highestGamerRoleId = VIP_ROLES_HIERARCHY
                     .slice()
-                    .reverse() // من الأعلى للأقل حتى نأخذ الأعلى أولاً
+                    .reverse()
                     .find(rid => member.roles.cache.has(rid));
 
                 if (highestGamerRoleId) {
-                    // عنده Gamer role → نأخذ وزنه من الـ multiplier
                     const gamerWeight = Number(config.multiplier[highestGamerRoleId]) || 1;
-                    entryWeight = hasBooster
-                        ? Math.round(gamerWeight * 1.5) // Gamer + Booster → × 1.5
-                        : gamerWeight;                  // Gamer فقط → الوزن مباشرة
-                } else if (hasBooster && config.multiplier[BOOSTER_ROLE_ID]) {
-                    // Booster فقط (بدون أي Gamer role)
-                    entryWeight = Number(config.multiplier[BOOSTER_ROLE_ID]) || 1;
-                } else {
-                    // لا Gamer ولا Booster → نأخذ أعلى وزن من الـ multiplier إن وُجد
+                    entryWeight = hasBooster ? Math.round(gamerWeight * 1.5) : gamerWeight;
+                } 
+                // الخطوة 2: لو ملقتش Gamer role، دور على أي رول تاني عند المستخدم موجود في الـ multiplier
+                else {
                     for (const [roleId, weight] of Object.entries(config.multiplier)) {
                         if (member.roles.cache.has(roleId)) {
-                            entryWeight = Math.max(entryWeight, Number(weight) || 1);
+                            let finalWeight = Number(weight) || 1;
+                            if (hasBooster) {
+                                finalWeight = Math.round(finalWeight * 1.5);
+                            }
+                            if (finalWeight > entryWeight) {
+                                entryWeight = finalWeight;
+                            }
                         }
                     }
                 }
@@ -2445,5 +2458,17 @@ module.exports = {
     },
 
     restoreScheduledGiveaways,
-    publishScheduledGiveaway
+    publishScheduledGiveaway,
+
+    // ========== SHARED HELPERS ==========
+    parseRoleIdsFromString,
+    parseColor,
+    parseMultiplierInput,
+    parseJsonField,
+    randomBetween,
+    getPrizeDisplayName,
+    getPeriodLabel,
+    buildExtraEntriesLines,
+    buildRequirementsLines,
+    buildDescriptionFromEntryValues
 };
