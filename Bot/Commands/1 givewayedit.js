@@ -259,6 +259,7 @@ module.exports = {
             .setName('blacklist')
             .setDescription('Banned roles (e.g. @R1, @R2 replaces default blacklist)')
             .setRequired(false))
+        .addStringOption(opt => opt.setName('multiple_chance').setDescription('Role weights like @role:2,@role:4').setRequired(false))
         .addStringOption(opt => opt.setName('prizes').setDescription('New prizes separated by commas').setRequired(false))
         .addStringOption(opt => opt.setName('messages_duration').setDescription('New period (daily/weekly/monthly)').setRequired(false).addChoices(
             { name: 'Daily', value: 'daily' },
@@ -266,8 +267,7 @@ module.exports = {
             { name: 'Monthly', value: 'monthly' }
         ))
         .addStringOption(opt => opt.setName('number_of_messages').setDescription('New message requirements for each prize').setRequired(false))
-        .addStringOption(opt => opt.setName('color').setDescription('New embed color').setRequired(false))
-        .addStringOption(opt => opt.setName('multiple_chance').setDescription('Role weights like @role:2,@role:4').setRequired(false)),
+        .addStringOption(opt => opt.setName('color').setDescription('New embed color').setRequired(false)),
 
     async execute(interaction) {
         try {

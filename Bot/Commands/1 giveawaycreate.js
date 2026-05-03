@@ -534,12 +534,13 @@ function buildParticipantsButtons(giveawayCode, currentPage, totalPages) {
     return row;
 }
 
+// ✅ الكود الجديد
 async function handleParticipants(interaction, giveawayCode, page = 1) {
     const giveaway = await dbManager.getGiveawayByCode(giveawayCode);
     if (!giveaway) {
-        return interaction.reply({
+        return interaction.update({  // تغيير من reply ل update
             embeds: [new EmbedBuilder().setColor(0xED4245).setDescription('❌ Giveaway not found')],
-            flags: 64
+            components: []  // إضافة components فارغة
         });
     }
 
@@ -553,15 +554,17 @@ async function handleParticipants(interaction, giveawayCode, page = 1) {
     );
 
     if (totalPages === 0) {
-        return interaction.reply({ embeds: [embed], flags: 64 });
+        return interaction.update({  // تغيير من reply ل update
+            embeds: [embed],
+            components: []
+        });
     }
 
     const row = buildParticipantsButtons(giveawayCode, currentPage, totalPages);
 
-    return interaction.reply({
+    return interaction.update({  // تغيير من reply ل update
         embeds: [embed],
-        components: [row],
-        flags: 64
+        components: [row]
     });
 }
 
@@ -1643,7 +1646,8 @@ module.exports = {
             const page = parseInt(parts[1], 10) || 1;
 
             if (subAction === 'view' || subAction === 'prev' || subAction === 'next' || subAction === 'refresh') {
-                return handleParticipants(interaction, giveawayCode, page);
+                await handleParticipants(interaction, giveawayCode, page);  // استخدم await
+                return;  // منع أي معالجة إضافية
             }
         }
 

@@ -811,12 +811,13 @@ module.exports = {
         return { embed, totalPages, currentPage: validPage };
     },
 
+    // ✅ الكود الجديد
     async handleParticipants(interaction, giveawayCode, page = 1) {
         const giveaway = await dbManager.getActiveCommunityGiveawayByCode(giveawayCode);
         if (!giveaway) {
-            return interaction.reply({
+            return interaction.update({  // ✅ تغيير من reply ل update
                 embeds: [this.buildReplyEmbed(0xED4245, '❌ Giveaway not found')],
-                ephemeral: true
+                components: []  // ✅ إضافة components فارغة
             });
         }
 
@@ -824,7 +825,6 @@ module.exports = {
         const guildIconURL = interaction.guild?.iconURL() || null;
         const currentUserId = interaction.user.id;
 
-        // جلب اسم اللعبة ولون الجيفاواي
         const giveawayTitle = giveaway.game_name || 'Giveaway';
         const embedColor = giveaway.embed_color ? parseInt(giveaway.embed_color, 10) : DEFAULT_COLOR;
 
@@ -841,15 +841,17 @@ module.exports = {
         );
 
         if (totalPages === 0) {
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.update({  // ✅ تغيير من reply ل update
+                embeds: [embed],
+                components: []
+            });
         }
 
         const row = this.buildParticipantsButton(giveawayCode, currentPage, totalPages);
 
-        return interaction.reply({
+        return interaction.update({  // ✅ تغيير من reply ل update
             embeds: [embed],
-            components: [row],
-            ephemeral: true
+            components: [row]
         });
     },
 
@@ -863,7 +865,8 @@ module.exports = {
             const subAction = parts[3];
             let page = parseInt(parts[4], 10) || 1;
 
-            return this.handleParticipants(interaction, giveawayCode, page);
+            await this.handleParticipants(interaction, giveawayCode, page);  // ✅ استخدم await
+            return;  // ✅ منع أي معالجة إضافية
         }
 
         if (customId.startsWith('commgiveaway_preview_')) {
