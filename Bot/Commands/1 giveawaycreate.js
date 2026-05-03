@@ -1790,6 +1790,62 @@ module.exports = {
                 });
             }
 
+            const configForPurchase = this.buildConfigFromGiveaway(giveaway);
+            const memberForPurchase = interaction.member;
+
+            // ===== 1. فحص الـ blacklist =====
+            const isBlacklistedPurchase = configForPurchase.banRoleIds.some(roleId => memberForPurchase.roles.cache.has(roleId));
+            if (isBlacklistedPurchase) {
+                return this.safeUpdate(interaction, {
+                    embeds: [new EmbedBuilder().setColor('#FF0000').setDescription('❌ You are banned from this giveaway')],
+                    components: []
+                });
+            }
+
+            // ===== 2. فحص الـ bypass (مع mode) =====
+            const hasBypassPurchase = configForPurchase.bypassRoleIds.length > 0
+                && checkRoles(memberForPurchase.roles.cache, configForPurchase.bypassRoleIds, configForPurchase.bypassRoleMode);
+
+            if (!hasBypassPurchase) {
+                // ===== فحص الـ required roles =====
+                if (configForPurchase.reqRoleIds.length > 0) {
+                    const hasRequired = checkRoles(memberForPurchase.roles.cache, configForPurchase.reqRoleIds, configForPurchase.reqRoleMode);
+                    if (!hasRequired) {
+                        const modeLabel = configForPurchase.reqRoleMode === 'y'
+                            ? 'You need **all** of these roles'
+                            : 'You need **at least one** of these roles';
+                        const rolesMention = configForPurchase.reqRoleIds.map(id => `<@&${id}>`).join(', ');
+                        return this.safeUpdate(interaction, {
+                            embeds: [new EmbedBuilder().setColor('#FF0000').setDescription(`❌ ${modeLabel}: ${rolesMention}`)],
+                            components: []
+                        });
+                    }
+                }
+
+                // ===== فحص SkyWell =====
+                if (originalSuffix === 'SKYWELL_JOIN') {
+                    const hasSkywell = SKYWELL_ROLE_IDS.some(rid => memberForPurchase.roles.cache.has(rid));
+                    if (!hasSkywell) {
+                        return this.safeUpdate(interaction, {
+                            embeds: [new EmbedBuilder().setColor('#FF0000').setDescription('❌ You need a SkyWell role to join this giveaway')],
+                            components: []
+                        });
+                    }
+                }
+
+                // ===== فحص Elite =====
+                if (originalSuffix === 'ELITE_GIFT_CARD' || originalSuffix === 'ELITE_CHOSEN_KEY') {
+                    const hasEliteRole = memberForPurchase.roles.cache.has(GAMER_5_ID) || memberForPurchase.roles.cache.has(TIER_5_ID);
+                    if (!hasEliteRole) {
+                        return this.safeUpdate(interaction, {
+                            embeds: [new EmbedBuilder().setColor('#FF0000').setDescription(`❌ You need <@&${GAMER_5_ID}> or <@&${TIER_5_ID}> to join`)],
+                            components: []
+                        });
+                    }
+                }
+            }
+
+            // ===== 3. تنفيذ عملية الشراء =====
             const purchase = await purchaseMissingMessages(userId, needed, period);
             if (!purchase.success) {
                 const msg = purchase.reason === 'insufficient_coins'
@@ -1802,8 +1858,38 @@ module.exports = {
                 });
             }
 
-            const config = this.buildConfigFromGiveaway(giveaway);
-            const buttons = config.entryValues?.buttons || [];
+            // ===== 4. حساب الـ weight (نفس منطق الـ join) =====
+            let entryWeight = 1;
+
+            if (configForPurchase.multiplier) {
+                const hasBooster = memberForPurchase.roles.cache.has(BOOSTER_ROLE_ID);
+
+                // أعلى رتبة Gamer
+                const highestGamerRoleId = VIP_ROLES_HIERARCHY
+                    .slice()
+                    .reverse()
+                    .find(rid => memberForPurchase.roles.cache.has(rid));
+
+                if (highestGamerRoleId) {
+                    const gamerWeight = Number(configForPurchase.multiplier[highestGamerRoleId]) || 1;
+                    entryWeight = hasBooster ? Math.round(gamerWeight * 1.5) : gamerWeight;
+                } else {
+                    // أي رول تاني في multiplier
+                    for (const [roleId, weight] of Object.entries(configForPurchase.multiplier)) {
+                        if (memberForPurchase.roles.cache.has(roleId)) {
+                            let finalWeight = Number(weight) || 1;
+                            if (hasBooster) {
+                                finalWeight = Math.round(finalWeight * 1.5);
+                            }
+                            if (finalWeight > entryWeight) {
+                                entryWeight = finalWeight;
+                            }
+                        }
+                    }
+                }
+            }
+
+            const buttons = configForPurchase.entryValues?.buttons || [];
             const originalButton = buttons[btnIndex] || {};
 
             let entryType = originalSuffix;
@@ -1814,21 +1900,22 @@ module.exports = {
                 entryType = `role_${roleIdForEntry}`;
             }
 
-            const prizeLabel = originalButton.label || this.getPrizeLabelFromConfig(entryType, config);
+            const prizeLabel = originalButton.label || this.getPrizeLabelFromConfig(entryType, configForPurchase);
 
+            // ===== 5. إضافة المشترك بالـ weight الصحيح =====
             const joinRes = await dbManager.addParticipant(
                 giveawayCode,
                 userId,
                 interaction.user.username,
                 entryType,
                 roleIdForEntry || originalButton.roleId || null,
-                1,
+                entryWeight,  // ✅ الآن الـ weight محسوب صح
                 prizeLabel
             );
 
             if (!joinRes.success) {
+                // رد الفلوس لو فشل
                 await dbManager.run(`UPDATE levels SET sky_coins = sky_coins + $1 WHERE user_id = $2`, [purchase.cost, userId]);
-
                 const col = period === 'daily' ? 'daily_sent' : period === 'weekly' ? 'weekly_sent' : 'monthly_sent';
                 await dbManager.run(
                     `UPDATE message_stats SET ${col} = ${col} - $1 WHERE user_id = $2`,
@@ -1841,13 +1928,13 @@ module.exports = {
                 });
             }
 
+            // ===== 6. تحديث الرسالة =====
             const endsAt = new Date(giveaway.end_time);
             const host = await this.resolveHostUser(interaction.client, giveaway.host_id, giveaway.host_name);
-            const updated = this.updateGiveawayMessage(config, endsAt, giveawayCode, host, joinRes.entries);
+            const updated = this.updateGiveawayMessage(configForPurchase, endsAt, giveawayCode, host, joinRes.entries);
             await this._editMainMessage(interaction.client, giveaway.channel_id, giveaway.message_id, updated);
 
-            // ✅ هنا التعديل
-            const isSingleButton = config.entryValues?.buttons?.length === 1;
+            const isSingleButton = configForPurchase.entryValues?.buttons?.length === 1;
             const joinedMessage = isSingleButton
                 ? `✅ Purchased **${needed}** messages (cost: **${purchase.cost}** 🪙)\nYou joined **the giveaway**!`
                 : `✅ Purchased **${needed}** messages (cost: **${purchase.cost}** 🪙)\nYou joined **${prizeLabel}**!`;
