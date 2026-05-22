@@ -787,7 +787,21 @@ bypass_role_mode TEXT DEFAULT 'n',
                     CONSTRAINT valid_entry_type CHECK (entry_type IN ('messages', 'coins', 'crystals', 'xp'))
                 )`,
 
+                `CREATE TABLE IF NOT EXISTS web_users (
+                    id SERIAL PRIMARY KEY,
+                    discord_id TEXT UNIQUE NOT NULL,
+                    username TEXT NOT NULL,
+                    avatar TEXT,
+                    session_id TEXT UNIQUE,
+                    session_expires_at TIMESTAMP,
+                    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )`,
+
                 // الفهارس
+                `CREATE INDEX IF NOT EXISTS idx_web_users_discord_id ON web_users(discord_id)`,
+                `CREATE INDEX IF NOT EXISTS idx_web_users_session_id ON web_users(session_id)`,
+                
                 `CREATE INDEX IF NOT EXISTS idx_giveaways_code ON giveaways(giveaway_code)`,
                 `CREATE INDEX IF NOT EXISTS idx_giveaways_status ON giveaways(status)`,
                 `CREATE INDEX IF NOT EXISTS idx_giveaways_end_time ON giveaways(end_time)`,
@@ -2739,6 +2753,364 @@ bypass_role_mode TEXT DEFAULT 'n',
         } catch (error) {
             console.error('❌ Error getting expired community giveaways for end:', error);
             return [];
+        }
+    }
+
+    // -======================================== WEBSITE =======================================
+    // حفظ أو تحديث مستخدم
+    async upsertWebUser(discordId, username, avatar, sessionId, expiresAt) {
+        try {
+            const existing = await this.get(
+                'SELECT * FROM web_users WHERE discord_id = $1',
+                [discordId]
+            );
+
+            if (existing) {
+                await this.run(
+                    `UPDATE web_users 
+                     SET username = $1, avatar = $2, session_id = $3, 
+                         session_expires_at = $4, last_seen = CURRENT_TIMESTAMP
+                     WHERE discord_id = $5`,
+                    [username, avatar, sessionId, expiresAt, discordId]
+                );
+            } else {
+                await this.run(
+                    `INSERT INTO web_users 
+                     (discord_id, username, avatar, session_id, session_expires_at)
+                     VALUES ($1, $2, $3, $4, $5)`,
+                    [discordId, username, avatar, sessionId, expiresAt]
+                );
+            }
+            return true;
+        } catch (error) {
+            console.error('❌ Error:', error.message);
+            return false;
+        }
+    }
+
+    // جلب مستخدم بالـ session_id
+    async getWebUserBySession(sessionId) {
+        try {
+            return await this.get(
+                'SELECT * FROM web_users WHERE session_id = $1 AND session_expires_at > CURRENT_TIMESTAMP',
+                [sessionId]
+            );
+        } catch (error) {
+            return null;
+        }
+    }
+
+    // جلب مستخدم بالـ discord_id
+    async getWebUser(discordId) {
+        try {
+            return await this.get(
+                'SELECT * FROM web_users WHERE discord_id = $1',
+                [discordId]
+            );
+        } catch (error) {
+            return null;
+        }
+    }
+
+    // حذف الجلسة (تسجيل خروج)
+    async deleteSession(sessionId) {
+        try {
+            await this.run(
+                'UPDATE web_users SET session_id = NULL, session_expires_at = NULL WHERE session_id = $1',
+                [sessionId]
+            );
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    // ============================================================
+    // أضف الدوال الجديدة هنا (جوه الكلاس، قبل القوس الأخير)
+    // ============================================================
+
+    async getUserDropProgress(userId) {
+        try {
+            const user = await this.get(
+                'SELECT * FROM user_drop_progress WHERE user_id = $1',
+                [userId]
+            );
+
+            if (!user) {
+                return {
+                    user_id: userId,
+                    total_messages: 0,
+                    common_target: 100,
+                    rare_target: 250,
+                    epic_target: 350,
+                    legendary_target: 550,
+                    total_common_received: 0,
+                    total_rare_received: 0,
+                    total_epic_received: 0,
+                    total_legendary_received: 0,
+                    last_common_at: 0,
+                    last_rare_at: 0,
+                    last_epic_at: 0,
+                    last_legendary_at: 0
+                };
+            }
+
+            return user;
+        } catch (error) {
+            console.error('❌ Error in getUserDropProgress:', error.message);
+            return null;
+        }
+    }
+
+    async getUserCrates(userId, options = {}) {
+        try {
+            const { unusedOnly = true, limit = 100 } = options;
+
+            let query = 'SELECT * FROM user_crates WHERE user_id = $1';
+            const params = [userId];
+
+            if (unusedOnly) {
+                query += ' AND is_used = false';
+            }
+
+            query += ' ORDER BY created_at DESC LIMIT $2';
+            params.push(limit);
+
+            const crates = await this.all(query, params);
+
+            return {
+                crates: crates,
+                stats: {
+                    total: crates.length,
+                    unused: crates.filter(c => !c.is_used).length,
+                    byType: {}
+                }
+            };
+        } catch (error) {
+            console.error('❌ Error in getUserCrates:', error.message);
+            return { crates: [], stats: { total: 0, unused: 0, byType: {} } };
+        }
+    }
+
+    async getTopDropUsers(limit = 10) {
+        try {
+            return await this.all(
+                `SELECT 
+                    user_id,
+                    username,
+                    total_messages,
+                    (COALESCE(total_common_received, 0) + 
+                     COALESCE(total_rare_received, 0) + 
+                     COALESCE(total_epic_received, 0) + 
+                     COALESCE(total_legendary_received, 0)) as total_drops,
+                    COALESCE(total_common_received, 0) as total_common_received,
+                    COALESCE(total_rare_received, 0) as total_rare_received,
+                    COALESCE(total_epic_received, 0) as total_epic_received,
+                    COALESCE(total_legendary_received, 0) as total_legendary_received
+                 FROM user_drop_progress 
+                 ORDER BY total_messages DESC 
+                 LIMIT $1`,
+                [limit]
+            );
+        } catch (error) {
+            console.error('❌ Error in getTopDropUsers:', error.message);
+            return [];
+        }
+    }
+
+    async getInviterStats(userId) {
+        try {
+            const stats = await this.get(
+                'SELECT COALESCE(total, 0) as total, COALESCE(verified, 0) as verified, COALESCE(unverified, 0) as unverified, COALESCE(left_count, 0) as left_count FROM invites WHERE user_id = $1',
+                [userId]
+            );
+
+            if (!stats) {
+                return { total: 0, verified: 0, unverified: 0, left: 0 };
+            }
+
+            return {
+                total: stats.total || 0,
+                verified: stats.verified || 0,
+                unverified: stats.unverified || 0,
+                left: stats.left_count || 0
+            };
+        } catch (error) {
+            console.error('❌ Error in getInviterStats:', error.message);
+            return { total: 0, verified: 0, unverified: 0, left: 0 };
+        }
+    }
+
+    async getTopInviters(limit = 10) {
+        try {
+            return await this.all(
+                'SELECT user_id, username, total, verified, unverified, left_count FROM invites WHERE total > 0 ORDER BY total DESC LIMIT $1',
+                [limit]
+            );
+        } catch (error) {
+            console.error('❌ Error in getTopInviters:', error.message);
+            return [];
+        }
+    }
+
+    // ========== STEAM PUBLISHER GAMES (NEW) ==========
+
+    // 1. دالة جلب كل الألعاب (مرتبة حسب تاريخ الإصدار)
+    getAllSteamGames() {
+        return this.all(`
+            SELECT appid, name, release_date, header_image, announced, coming_soon,
+                   initial_price, current_price, discount_percent, current_version,
+                   review_text, review_count, genre, about,
+                   first_seen, last_checked
+            FROM steam_publisher_games
+            ORDER BY release_date DESC, name ASC
+        `);
+    }
+
+    // 2. دالة جلب الألعاب التي لم يتم الإعلان عنها
+    getUngamedSteamGames() {
+        return this.all(`
+            SELECT appid, name, release_date, header_image, announced, coming_soon,
+                   initial_price, current_price, discount_percent, current_version,
+                   review_text, review_count, genre, about,
+                   first_seen, last_checked
+            FROM steam_publisher_games
+            WHERE announced = 0
+            ORDER BY release_date DESC
+        `);
+    }
+
+    // 3. دالة جلب الألعاب الصادرة بالفعل (coming_soon = 0)
+    getReleasedSteamGames() {
+        return this.all(`
+            SELECT appid, name, release_date, header_image, announced, coming_soon,
+                   initial_price, current_price, discount_percent, current_version,
+                   review_text, review_count, genre, about,
+                   first_seen, last_checked
+            FROM steam_publisher_games
+            WHERE coming_soon = 0
+            ORDER BY release_date DESC
+        `);
+    }
+
+    // 4. دالة جلب الألعاب المخفضة
+    getDiscountedSteamGames() {
+        return this.all(`
+            SELECT appid, name, release_date, header_image, announced, coming_soon,
+                   initial_price, current_price, discount_percent, current_version,
+                   review_text, review_count, genre, about,
+                   first_seen, last_checked
+            FROM steam_publisher_games
+            WHERE discount_percent > 0
+            ORDER BY release_date DESC
+        `);
+    }
+
+    // 5. دالة جلب لعبة واحدة
+    getSteamGame(appid) {
+        return this.get(`
+            SELECT appid, name, release_date, header_image, announced, coming_soon,
+                   initial_price, current_price, discount_percent, current_version,
+                   review_text, review_count, genre, about,
+                   first_seen, last_checked
+            FROM steam_publisher_games
+            WHERE appid = ?
+        `, [appid]);
+    }
+
+    // ========== STEAM EVENTS ==========
+    // جلب الفعالية النشطة حالياً (لم تنتهِ)
+    getActiveSteamEvent() {
+        return this.get(`
+            SELECT gid, title, event_type, end_date, event_url
+            FROM steam_events
+            WHERE end_date > EXTRACT(EPOCH FROM NOW())::bigint
+            ORDER BY end_date ASC
+            LIMIT 1
+        `);
+    }
+
+    // ========== HUMBLE CHOICE ==========
+    // جلب باقة Humble Choice النشطة (لم تنتهِ صلاحيتها)
+    getActiveHumbleChoice() {
+        return this.get(`
+            SELECT bundle_id, title, price, currency, expiry_date, expiry_timestamp,
+                   games_count, url
+            FROM humble_choices
+            WHERE expiry_timestamp > EXTRACT(EPOCH FROM NOW())::bigint
+            ORDER BY expiry_timestamp ASC
+            LIMIT 1
+        `);
+    }
+
+    // ========== STEAM PUBLISHER LIVE SALES ==========
+    // جلب التخفيضات الحية النشطة (لم تنتهِ)
+    getSteamLiveSales() {
+        return this.all(`
+            SELECT appid, discount_percent, initial_price, current_price,
+                   sale_ends_at, message_id, channel_id, slot_index
+            FROM steam_publisher_live_sales
+            WHERE sale_ends_at > EXTRACT(EPOCH FROM NOW())::bigint
+            ORDER BY discount_percent DESC
+        `);
+    }
+
+    // ========== SKYWELL STATS FUNCTION ==========
+
+    async getSkywellStats(userId) {
+        try {
+            const user = await this.get(
+                'SELECT * FROM skywell_users WHERE user_id = $1',
+                [userId]
+            );
+
+            if (!user) return null;
+
+            // حساب الإجمالي الفعلي (عملات + كريستالات محولة)
+            const totalEffective = (user.total_coins_thrown || 0) + (user.total_converted_coins || 0);
+
+            let currentLevel = 0;
+            let nextLevelCoins = 0;
+            let progress = 0;
+
+            // مستويات Skywell
+            if (totalEffective >= 50000) {
+                currentLevel = 5;
+                progress = 100;
+            } else if (totalEffective >= 30000) {
+                currentLevel = 4;
+                nextLevelCoins = 50000 - totalEffective;
+                progress = Math.floor(((totalEffective - 30000) / 20000) * 100);
+            } else if (totalEffective >= 15000) {
+                currentLevel = 3;
+                nextLevelCoins = 30000 - totalEffective;
+                progress = Math.floor(((totalEffective - 15000) / 15000) * 100);
+            } else if (totalEffective >= 5000) {
+                currentLevel = 2;
+                nextLevelCoins = 15000 - totalEffective;
+                progress = Math.floor(((totalEffective - 5000) / 10000) * 100);
+            } else if (totalEffective >= 500) {
+                currentLevel = 1;
+                nextLevelCoins = 5000 - totalEffective;
+                progress = Math.floor(((totalEffective - 500) / 4500) * 100);
+            }
+
+            return {
+                user_id: user.user_id,
+                username: user.username,
+                total_coins_thrown: user.total_coins_thrown || 0,
+                total_crystals_thrown: user.total_crystals_thrown || 0,
+                total_converted_coins: user.total_converted_coins || 0,
+                throw_count: user.throw_count || 0,
+                highest_single_throw: user.highest_single_throw || 0,
+                current_level: currentLevel,
+                nextLevelCoins: nextLevelCoins,
+                progress: progress,
+                totalEffectiveCoins: totalEffective
+            };
+        } catch (error) {
+            console.error('❌ Error getSkywellStats:', error.message);
+            return null;
         }
     }
     

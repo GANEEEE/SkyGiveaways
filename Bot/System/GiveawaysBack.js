@@ -72,12 +72,28 @@ async function restoreActiveGiveaways(client) {
 // ============================================================
 async function endExpiredGiveaways(client) {
     try {
+        // السحوبات النشطة المنتهية
         const expiredGiveaways = await dbManager.getExpiredActiveGiveaways();
-        if (expiredGiveaways.length === 0) return;
 
-        console.log(`⏰ Found ${expiredGiveaways.length} expired giveaways to end...`);
+        // ✅ السحوبات المجدولة اللي فات ميعادها
+        const expiredScheduledResult = await dbManager.run(
+            `SELECT * FROM giveaways 
+             WHERE status = 'scheduled' 
+               AND schedule IS NOT NULL
+               AND schedule < NOW()`,
+            []
+        );
 
-        for (const giveaway of expiredGiveaways) {
+        const expiredScheduledGiveaways = expiredScheduledResult.rows || [];
+
+        // دمج الاتنين
+        const allExpired = [...expiredGiveaways, ...expiredScheduledGiveaways];
+
+        if (allExpired.length === 0) return;
+
+        console.log(`⏰ Found ${allExpired.length} expired giveaways to end...`);
+
+        for (const giveaway of allExpired) {
             try {
                 const channel = await rl.run(
                     () => client.channels.fetch(giveaway.channel_id).catch(() => null),
@@ -99,7 +115,6 @@ async function endExpiredGiveaways(client) {
                 const result = await dbManager.endGiveaway(giveaway.giveaway_code);
                 if (!result.success) continue;
 
-                // بناء الـ config من بيانات الجيفاواي
                 const config = {
                     ...giveawayCommand.buildConfigFromGiveaway(giveaway),
                     host: {
@@ -169,11 +184,18 @@ async function endExpiredGiveaways(client) {
 async function restoreActiveOnes(client) {
     try {
         const activeGiveaways = await dbManager.getActiveGiveawaysForRestore();
-        if (activeGiveaways.length === 0) return;
 
-        console.log(`📦 Found ${activeGiveaways.length} active giveaways to restore`);
+        // ✅ فلتر: بس اللي لسه ما خلصوش
+        const validActive = activeGiveaways.filter(g => {
+            const endsAt = new Date(g.end_time);
+            return endsAt.getTime() - Date.now() > 0;
+        });
 
-        for (const giveaway of activeGiveaways) {
+        if (validActive.length === 0) return;
+
+        console.log(`📦 Found ${validActive.length} active giveaways to restore`);
+
+        for (const giveaway of validActive) {
             try {
                 const channel = await rl.run(
                     () => client.channels.fetch(giveaway.channel_id).catch(() => null),
@@ -193,7 +215,6 @@ async function restoreActiveOnes(client) {
                 const giveawayCommand = client.commands.get('giveaway');
                 if (!giveawayCommand) continue;
 
-                // ✅ جلب الـ host كـ user object حقيقي
                 const host = await client.users.fetch(giveaway.host_id).catch(() => ({
                     id: giveaway.host_id,
                     username: giveaway.host_name || 'Host',
@@ -212,7 +233,7 @@ async function restoreActiveOnes(client) {
                     config,
                     endsAt,
                     giveaway.giveaway_code,
-                    host, // ✅ host object مش string
+                    host,
                     entries
                 );
 

@@ -346,6 +346,15 @@ async function publishScheduledGiveaway(giveawayCode, client) {
         const giveaway = await dbManager.getGiveawayByCode(giveawayCode);
         if (!giveaway || giveaway.status !== 'scheduled') return;
 
+        // ✅ حساب وقت الانتهاء من وقت النشر الفعلي
+        const durationMs = parseDuration(giveaway.duration);
+        const actualEndsAt = new Date(Date.now() + durationMs);
+
+        await dbManager.run(
+            `UPDATE giveaways SET end_time = $1 WHERE giveaway_code = $2`,
+            [actualEndsAt.toISOString(), giveawayCode]
+        );
+
         const channel = client.channels.cache.get(giveaway.channel_id) || await client.channels.fetch(giveaway.channel_id).catch(() => null);
         if (!channel) return;
 
@@ -353,7 +362,6 @@ async function publishScheduledGiveaway(giveawayCode, client) {
         if (!giveawayCommand) return;
 
         const config = giveawayCommand.buildConfigFromGiveaway(giveaway);
-        const endsAt = new Date(giveaway.end_time);
 
         const host = await client.users.fetch(giveaway.host_id).catch(() => ({
             id: giveaway.host_id,
@@ -361,12 +369,12 @@ async function publishScheduledGiveaway(giveawayCode, client) {
             displayAvatarURL: () => null
         }));
 
-        const messageData = giveawayCommand.createGiveawayMessage(config, endsAt, giveawayCode, host, giveaway.entries || {});
+        const messageData = giveawayCommand.createGiveawayMessage(config, actualEndsAt, giveawayCode, host, giveaway.entries || {});
         const message = await channel.send(messageData);
 
         await dbManager.activateScheduledGiveaway(giveawayCode, message.id, channel.id);
 
-        giveawayCommand.setupJoinCollector(message, giveawayCode, endsAt, config, client);
+        giveawayCommand.setupJoinCollector(message, giveawayCode, actualEndsAt, config, client);
         giveawayCommand.setupConfirmCollector(message, giveawayCode, client);
 
         console.log(`✅ Published: ${giveawayCode}`);
@@ -865,18 +873,37 @@ module.exports = {
         }));
     },
 
-    buildCreatePayload(interaction, host, scheduleChannel, template, config, endsAt, scheduledTime) {
-        return { interaction, host, scheduleChannel, template, config, endsAt, scheduledTime };
+    buildCreatePayload(interaction, host, scheduleChannel, template, config, scheduledTime, durationMs) {
+        return { interaction, host, scheduleChannel, template, config, scheduledTime, durationMs };
     },
 
     async finalizeGiveawayCreation(payload) {
-        const { interaction, host, scheduleChannel, template, config, endsAt, scheduledTime } = payload;
+        const { interaction, host, scheduleChannel, template, config, scheduledTime, durationMs } = payload;
 
         const giveawayCode = this.generateGiveawayCode();
 
         let message = null;
-        if (!scheduledTime) {
+        let endsAt = null;
+
+        // ✅ تأكد من نوع scheduledTime
+        let actualScheduledTime = null;
+        if (scheduledTime) {
+            if (scheduledTime instanceof Date) {
+                actualScheduledTime = scheduledTime;
+            } else if (typeof scheduledTime === 'string') {
+                actualScheduledTime = new Date(scheduledTime);
+            } else if (typeof scheduledTime === 'number') {
+                actualScheduledTime = new Date(scheduledTime);
+            }
+        }
+
+        if (!actualScheduledTime) {
+            // سحب فوري: الوقت يبدأ من الآن
+            endsAt = new Date(Date.now() + durationMs);
             message = await scheduleChannel.send(this.createGiveawayMessage(config, endsAt, giveawayCode, host, {}));
+        } else {
+            // سحب مجدول: الوقت يبدأ من الوقت المجدول
+            endsAt = new Date(actualScheduledTime.getTime() + durationMs);
         }
 
         const result = await dbManager.createGiveaway({
@@ -899,11 +926,11 @@ module.exports = {
             hostId: host.id,
             hostName: host.username,
             imageUrl: config.imageUrl || null,
-            schedule: scheduledTime ? scheduledTime.toISOString() : null,
+            schedule: actualScheduledTime ? actualScheduledTime.toISOString() : null,
             guildId: interaction.guildId,
             messageId: message?.id || null,
             channelId: scheduleChannel.id,
-            status: scheduledTime ? 'scheduled' : 'active'
+            status: actualScheduledTime ? 'scheduled' : 'active'
         });
 
         if (!result.success) {
@@ -914,17 +941,22 @@ module.exports = {
             };
         }
 
-        if (scheduledTime) {
-            const delay = scheduledTime.getTime() - Date.now();
-            const tid = setTimeout(() => publishScheduledGiveaway(giveawayCode, interaction.client), delay);
-            scheduledTimeouts.set(giveawayCode, tid);
+        if (actualScheduledTime) {
+            const delay = actualScheduledTime.getTime() - Date.now();
+            if (delay > 0) {
+                const tid = setTimeout(() => publishScheduledGiveaway(giveawayCode, interaction.client), delay);
+                scheduledTimeouts.set(giveawayCode, tid);
+            } else {
+                // لو الوقت فات، انشره فوراً
+                await publishScheduledGiveaway(giveawayCode, interaction.client);
+            }
 
             return {
                 success: true,
                 embed: this.buildResultEmbed(
                     0x57F287,
                     '✅ Scheduled!',
-                    `**Code:** \`${giveawayCode}\`\n**Starts:** <t:${Math.floor(scheduledTime.getTime() / 1000)}:R>\n**Channel:** ${scheduleChannel}`
+                    `**Code:** \`${giveawayCode}\`\n**Starts:** <t:${Math.floor(actualScheduledTime.getTime() / 1000)}:R>\n**Channel:** ${scheduleChannel}`
                 )
             };
         }
@@ -1073,14 +1105,16 @@ module.exports = {
                 scheduledTime = new Date(Date.now() + delayMs);
             }
 
-            const endsAt = new Date((scheduledTime || new Date()).getTime() + durationMs);
+            //const endsAt = new Date((scheduledTime || new Date()).getTime() + durationMs);
 
             const previewId = Math.random().toString(36).slice(2, 10).toUpperCase();
-            previewSessions.set(previewId, this.buildCreatePayload(interaction, host, scheduleChannel, template, config, endsAt, scheduledTime));
+            previewSessions.set(previewId, this.buildCreatePayload(interaction, host, scheduleChannel, template, config, scheduledTime, durationMs));
+
+            const previewEndsAt = new Date(Date.now() + 60000);
 
             return interaction.editReply({
                 content: '**Preview this giveaway**\nIf it looks good, press `Yes`, and if not, press `No`',
-                embeds: [this.createGiveawayEmbed(config, endsAt, 'PREVIEW', host, {}, false)],
+                embeds: [this.createGiveawayEmbed(config, previewEndsAt, 'PREVIEW', host, {}, false)],
                 components: this.buildPreviewRows(previewId)
             });
         } catch (error) {

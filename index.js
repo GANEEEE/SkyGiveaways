@@ -9,6 +9,9 @@ const path = require('path');
 const fs = require('fs');
 const dbManager = require('./Bot/Data/database'); // استيراد مدير قاعدة البيانات
 const keep_alive = require(`./keep_alive.js`);
+const { router: apiRouter, initAPI } = require('./api');
+const { router: capiRouter, initCAPI } = require('./capi');
+const authRouter = require('./auth');
 
 // التحقق من وجود التوكن
 if (!process.env.TOKEN) {
@@ -125,6 +128,50 @@ async function startBot() {
 // بدء تشغيل البوت
 startBot();
 
+// ========== SETUP API SERVER ==========
+const express = require('express');
+const apiApp = express();
+
+// ✅ CSP Header (يسمح بـ Replit Pill)
+apiApp.use((req, res, next) => {
+    res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline';");
+    next();
+});
+
+// ✅ CORS middleware
+// اسمح بس للـ Frontend بتاعك (مفيش Wildcard)
+apiApp.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', 'https://32b58da6-da22-459e-979f-03831d03cf2e-00-14j2otp08i6l.kirk.replit.dev');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-API-Key');
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    next();
+});
+
+apiApp.use(express.json());
+apiApp.use('/api', apiRouter);
+apiApp.use('/capi', capiRouter);
+apiApp.use('/auth', authRouter);
+
+// Health check
+apiApp.get('/health', (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        message: 'API is running',
+        botReady: !!client,
+        timestamp: Date.now()
+    });
+});
+
+// ⭐ شغل API server
+const API_PORT = process.env.PORT || 3000;
+apiApp.listen(API_PORT, '0.0.0.0', () => {
+    console.log(`✅ API Server running on port ${API_PORT}`);
+});
+
 // معالجة الأخطاء
 process.on('unhandledRejection', error => {
   console.error('⚠️ Unhandled Rejection:', error);
@@ -159,6 +206,8 @@ process.on('uncaughtException', error => {
 // حدث عند اكتمال تسجيل الدخول
 client.once('ready', () => {
   console.log(`✅ ${client.user.tag} is now ready!`);
+  initAPI(client);
+  initCAPI(client);
 });
 
 // حدث عند فقدان الاتصال
