@@ -138,13 +138,25 @@ apiApp.use((req, res, next) => {
     next();
 });
 
-// ✅ CORS middleware
-// اسمح بس للـ Frontend بتاعك (مفيش Wildcard)
+// ✅ CORS middleware - السماح لأكثر من Origin
 apiApp.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', 'https://32b58da6-da22-459e-979f-03831d03cf2e-00-14j2otp08i6l.kirk.replit.dev');
+    const allowedOrigins = [
+        'https://32b58da6-da22-459e-979f-03831d03cf2e-00-14j2otp08i6l.kirk.replit.dev',
+        'https://giveawaywebsite.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:5173'
+    ];
+
+    const origin = req.headers.origin;
+
+    if (allowedOrigins.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', origin);
+    }
+
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-API-Key');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-API-Key, Authorization');
+
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
